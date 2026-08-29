@@ -25,6 +25,7 @@ import { customElement, property } from "lit/decorators.js";
 
 import { t } from "../../language/index.js";
 import type { UserMessageWithAttachments } from "../../messages/attachments.js";
+import { showErrorToast } from "../toast.js";
 import { renderTool } from "./tool-renderer-registry.js";
 import "./attachment-tile.js";
 import "./markdown-block.js";
@@ -32,9 +33,11 @@ import "./thinking-block.js";
 
 @customElement("user-message")
 export class UserMessage extends LitElement {
-  @property({ type: Object }) message?: UserMessageType | UserMessageWithAttachments;
+  @property({ type: Object })
+  message?: UserMessageType | UserMessageWithAttachments;
 
-  protected override createRenderRoot(): HTMLElement | DocumentFragment {
+  protected override createRenderRoot():
+    HTMLElement | DocumentFragment {
     return this;
   }
 
@@ -45,27 +48,39 @@ export class UserMessage extends LitElement {
 
   override render() {
     const message = this.message;
+
     if (!message) return html``;
 
     const content =
       typeof message.content === "string"
         ? message.content
-        : message.content.find((chunk) => chunk.type === "text")?.text || "";
+        : message.content.find(
+            (chunk) => chunk.type === "text",
+          )?.text || "";
 
     const attachments =
-      message.role === "user-with-attachments" && message.attachments?.length
+      message.role === "user-with-attachments" &&
+      message.attachments?.length
         ? message.attachments
         : null;
 
     return html`
       <div class="pi-user-row">
         <div class="user-message-container">
-          <markdown-block .content=${content}></markdown-block>
+          <markdown-block
+            .content=${content}
+          ></markdown-block>
+
           ${attachments
             ? html`
                 <div class="pi-user-attachments">
                   ${attachments.map(
-                    (attachment) => html`<attachment-tile .attachment=${attachment}></attachment-tile>`,
+                    (attachment) =>
+                      html`
+                        <attachment-tile
+                          .attachment=${attachment}
+                        ></attachment-tile>
+                      `,
                   )}
                 </div>
               `
@@ -78,15 +93,31 @@ export class UserMessage extends LitElement {
 
 @customElement("assistant-message")
 export class AssistantMessage extends LitElement {
-  @property({ type: Object }) message?: AssistantMessageType;
-  @property({ type: Array }) tools?: AgentTool[];
-  @property({ type: Object }) pendingToolCalls?: ReadonlySet<string>;
-  @property({ type: Boolean }) hideToolCalls = false;
-  @property({ type: Object }) toolResultsById?: Map<string, ToolResultMessage>;
-  @property({ type: Boolean }) isStreaming = false;
-  @property({ type: Boolean }) hidePendingToolCalls = false;
+  @property({ type: Object })
+  message?: AssistantMessageType;
 
-  protected override createRenderRoot(): HTMLElement | DocumentFragment {
+  @property({ type: Array })
+  tools?: AgentTool[];
+
+  @property({ type: Object })
+  pendingToolCalls?: ReadonlySet<string>;
+
+  @property({ type: Boolean })
+  hideToolCalls = false;
+
+  @property({ type: Object })
+  toolResultsById?: Map<string, ToolResultMessage>;
+
+  @property({ type: Boolean })
+  isStreaming = false;
+
+  @property({ type: Boolean })
+  hidePendingToolCalls = false;
+
+  private lastShownError = "";
+
+  protected override createRenderRoot():
+    HTMLElement | DocumentFragment {
     return this;
   }
 
@@ -95,61 +126,195 @@ export class AssistantMessage extends LitElement {
     this.style.display = "block";
   }
 
+  /**
+   * Convert raw provider errors into a short readable message.
+   */
+  private getFriendlyError(error: string): string {
+    const text = error.trim();
+    const lower = text.toLowerCase();
+
+    // OpenRouter insufficient credits / HTTP 402.
+    if (
+      lower.includes("402") ||
+      lower.includes("requires more credits") ||
+      lower.includes("can only afford") ||
+      lower.includes("openrouter_credits")
+    ) {
+      return "Not enough credits. Reduce max tokens or add credits.";
+    }
+
+    if (
+      lower.includes("401") ||
+      lower.includes("unauthorized") ||
+      lower.includes("invalid api key")
+    ) {
+      return "Authentication failed. Please check your API key.";
+    }
+
+    if (
+      lower.includes("403") ||
+      lower.includes("forbidden")
+    ) {
+      return "The request was not authorized by the provider.";
+    }
+
+    if (
+      lower.includes("429") ||
+      lower.includes("rate limit")
+    ) {
+      return "Rate limit reached. Please try again later.";
+    }
+
+    if (lower.includes("timeout")) {
+      return "The request timed out. Please try again.";
+    }
+
+    // Never display huge provider JSON.
+    if (text.length > 180) {
+      return `${text.slice(0, 177).trimEnd()}...`;
+    }
+
+    return text || "The LLM request failed.";
+  }
+
+  /**
+   * Display LLM errors using the shared top toast.
+   *
+   * The error is intentionally NOT rendered inside the chat message.
+   */
+  private showLlmError(error: string): void {
+    const friendlyMessage =
+      this.getFriendlyError(error);
+
+    showErrorToast(friendlyMessage);
+  }
+
+  /**
+   * Lit lifecycle hook.
+   *
+   * Detects an LLM error after the message has been updated
+   * and sends it to the toast system.
+   */
+  override updated(): void {
+    const message = this.message;
+
+    if (
+      message?.stopReason === "error" &&
+      message.errorMessage &&
+      message.errorMessage !== this.lastShownError
+    ) {
+      this.lastShownError = message.errorMessage;
+
+      this.showLlmError(
+        message.errorMessage,
+      );
+    }
+  }
+
   override render() {
     const message = this.message;
+
     if (!message) return html``;
 
     // Render content in the order it appears.
     const orderedParts: TemplateResult[] = [];
+
     for (const chunk of message.content) {
-      if (chunk.type === "text" && chunk.text.trim() !== "") {
-        orderedParts.push(html`<markdown-block .content=${chunk.text}></markdown-block>`);
-      } else if (chunk.type === "thinking" && chunk.thinking.trim() !== "") {
+      if (
+        chunk.type === "text" &&
+        chunk.text.trim() !== ""
+      ) {
         orderedParts.push(
-          html`<thinking-block .content=${chunk.thinking} .isStreaming=${this.isStreaming}></thinking-block>`,
+          html`
+            <markdown-block
+              .content=${chunk.text}
+            ></markdown-block>
+          `,
+        );
+      } else if (
+        chunk.type === "thinking" &&
+        chunk.thinking.trim() !== ""
+      ) {
+        orderedParts.push(
+          html`
+            <thinking-block
+              .content=${chunk.thinking}
+              .isStreaming=${this.isStreaming}
+            ></thinking-block>
+          `,
         );
       } else if (chunk.type === "toolCall") {
         if (this.hideToolCalls) continue;
 
-        const tool = this.tools?.find((candidate) => candidate.name === chunk.name);
-        const pending = this.pendingToolCalls?.has(chunk.id) ?? false;
-        const result = this.toolResultsById?.get(chunk.id);
+        const tool = this.tools?.find(
+          (candidate) =>
+            candidate.name === chunk.name,
+        );
 
-        // Skip pending tool calls when hidePendingToolCalls is set (prevents
-        // duplication while <streaming-message-container> is showing them).
-        if (this.hidePendingToolCalls && pending && !result) {
+        const pending =
+          this.pendingToolCalls?.has(chunk.id) ??
+          false;
+
+        const result =
+          this.toolResultsById?.get(chunk.id);
+
+        // Skip pending tool calls when hidePendingToolCalls
+        // is set.
+        if (
+          this.hidePendingToolCalls &&
+          pending &&
+          !result
+        ) {
           continue;
         }
 
-        // Aborted turn with no result for this call → render as aborted.
-        const aborted = message.stopReason === "aborted" && !result;
+        // Aborted turn with no result for this call.
+        const aborted =
+          message.stopReason === "aborted" &&
+          !result;
 
-        orderedParts.push(html`
-          <tool-message
-            .tool=${tool}
-            .toolCall=${chunk}
-            .result=${result}
-            .pending=${pending}
-            .aborted=${aborted}
-            .isStreaming=${this.isStreaming}
-          ></tool-message>
-        `);
+        orderedParts.push(
+          html`
+            <tool-message
+              .tool=${tool}
+              .toolCall=${chunk}
+              .result=${result}
+              .pending=${pending}
+              .aborted=${aborted}
+              .isStreaming=${this.isStreaming}
+            ></tool-message>
+          `,
+        );
       }
     }
 
     return html`
       <div>
-        ${orderedParts.length ? html`<div class="pi-assistant-body">${orderedParts}</div>` : nothing}
-        ${message.stopReason === "error" && message.errorMessage
-          ? html`
-              <div class="pi-assistant-error">
-                <strong>${t("messages.errorLabel")}</strong> ${message.errorMessage}
-              </div>
-            `
-          : nothing}
-        ${message.stopReason === "aborted"
-          ? html`<span class="pi-assistant-aborted">${t("messages.aborted")}</span>`
-          : nothing}
+        ${
+          orderedParts.length
+            ? html`
+                <div class="pi-assistant-body">
+                  ${orderedParts}
+                </div>
+              `
+            : nothing
+        }
+
+        <!--
+          IMPORTANT:
+          Do NOT render message.errorMessage here.
+          LLM errors are displayed using the top toast.
+        -->
+
+        ${
+          message.stopReason === "aborted"
+            ? html`
+                <span class="pi-assistant-aborted">
+                  ${t("messages.aborted")}
+                </span>
+              `
+            : nothing
+        }
       </div>
     `;
   }
@@ -157,14 +322,26 @@ export class AssistantMessage extends LitElement {
 
 @customElement("tool-message")
 export class ToolMessage extends LitElement {
-  @property({ type: Object }) toolCall?: ToolCall;
-  @property({ type: Object }) tool?: AgentTool;
-  @property({ type: Object }) result?: ToolResultMessage;
-  @property({ type: Boolean }) pending = false;
-  @property({ type: Boolean }) aborted = false;
-  @property({ type: Boolean }) isStreaming = false;
+  @property({ type: Object })
+  toolCall?: ToolCall;
 
-  protected override createRenderRoot(): HTMLElement | DocumentFragment {
+  @property({ type: Object })
+  tool?: AgentTool;
+
+  @property({ type: Object })
+  result?: ToolResultMessage;
+
+  @property({ type: Boolean })
+  pending = false;
+
+  @property({ type: Boolean })
+  aborted = false;
+
+  @property({ type: Boolean })
+  isStreaming = false;
+
+  protected override createRenderRoot():
+    HTMLElement | DocumentFragment {
     return this;
   }
 
@@ -175,35 +352,45 @@ export class ToolMessage extends LitElement {
 
   override render() {
     const toolCall = this.toolCall;
+
     if (!toolCall) return html``;
 
-    const toolName = this.tool?.name || toolCall.name;
+    const toolName =
+      this.tool?.name || toolCall.name;
 
-    // Aborted calls render like an errored result with no content.
-    const result: ToolResultMessage | undefined = this.aborted
-      ? {
-          role: "toolResult",
-          isError: true,
-          content: [],
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          timestamp: Date.now(),
-        }
-      : this.result;
+    // Aborted calls render like an errored result
+    // with no content.
+    const result: ToolResultMessage | undefined =
+      this.aborted
+        ? {
+            role: "toolResult",
+            isError: true,
+            content: [],
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            timestamp: Date.now(),
+          }
+        : this.result;
 
     const renderResult = renderTool(
       toolName,
       toolCall.arguments,
       result,
-      !this.aborted && (this.isStreaming || this.pending),
+      !this.aborted &&
+        (this.isStreaming || this.pending),
     );
 
-    // Custom renderers own their full card; fallback renders get a wrapper.
+    // Custom renderers own their full card.
     if (renderResult.isCustom) {
       return renderResult.content;
     }
 
-    return html`<div class="pi-tool-card-fallback">${renderResult.content}</div>`;
+    // Fallback renders get a wrapper.
+    return html`
+      <div class="pi-tool-card-fallback">
+        ${renderResult.content}
+      </div>
+    `;
   }
 }
 
