@@ -2,7 +2,6 @@
  * Shared toast helper used across taskpane and commands.
  */
 
-
 interface ToastElements {
   root: HTMLDivElement;
   message: HTMLSpanElement;
@@ -33,14 +32,15 @@ interface ResolvedToastOptions {
   };
 }
 
-const ERROR_TOAST_PATTERN = /\b(fail(?:ed|ure)?|error|invalid|denied|blocked|could\s*not|couldn't|can\s*not|can't|unable|timed\s*out)\b/iu;
+const ERROR_TOAST_PATTERN =
+  /\b(fail(?:ed|ure)?|error|invalid|denied|blocked|could\s*not|couldn't|can\s*not|can't|unable|timed\s*out)\b/iu;
+
 const DEFAULT_INFO_DURATION_MS = 2000;
-const DEFAULT_ERROR_DURATION_MS = 6000;
+const DEFAULT_ERROR_DURATION_MS = 8000;
 const ACTION_TOAST_DEFAULT_MS = 7000;
 
 let toastElements: ToastElements | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
-/** Backup timer for action toasts — fires even if the primary is cancelled. */
 let actionHideTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearHideTimer(): void {
@@ -48,10 +48,26 @@ function clearHideTimer(): void {
     clearTimeout(hideTimer);
     hideTimer = null;
   }
+
   if (actionHideTimer !== null) {
     clearTimeout(actionHideTimer);
     actionHideTimer = null;
   }
+}
+
+function hideToast(): void {
+  const elements = toastElements;
+
+  if (!elements) return;
+
+  elements.root.classList.remove("visible");
+  elements.root.classList.remove("pi-toast--action");
+  elements.root.classList.remove("pi-toast--error");
+
+  elements.action.hidden = true;
+  elements.action.onclick = null;
+
+  clearHideTimer();
 }
 
 function ensureToastElements(): ToastElements {
@@ -67,6 +83,10 @@ function ensureToastElements(): ToastElements {
   const content = document.createElement("div");
   content.className = "pi-toast__content";
 
+  const icon = document.createElement("span");
+  icon.className = "pi-toast__icon";
+  icon.setAttribute("aria-hidden", "true");
+
   const message = document.createElement("span");
   message.className = "pi-toast__message";
 
@@ -74,25 +94,27 @@ function ensureToastElements(): ToastElements {
   action.type = "button";
   action.className = "pi-toast__action";
   action.hidden = true;
+  action.setAttribute("aria-label", "Cancel");
+  action.title = "Cancel";
 
-  content.append(message, action);
+  content.append(icon, message, action);
   root.appendChild(content);
   document.body.appendChild(root);
 
-  toastElements = { root, message, action };
+  toastElements = {
+    root,
+    message,
+    action,
+  };
+
   return toastElements;
 }
 
 function scheduleHide(duration: number): void {
   clearHideTimer();
+
   hideTimer = setTimeout(() => {
-    const elements = toastElements;
-    if (!elements) return;
-    elements.root.classList.remove("visible");
-    elements.root.classList.remove("pi-toast--action");
-    elements.root.classList.remove("pi-toast--error");
-    elements.action.hidden = true;
-    elements.action.onclick = null;
+    hideToast();
   }, Math.max(0, duration));
 }
 
@@ -111,15 +133,29 @@ function normalizeToastOptions(
     };
   }
 
-  const variant = durationOrOptions?.variant ?? inferToastVariant(message);
-  const duration = durationOrOptions?.duration
-    ?? (variant === "error" ? DEFAULT_ERROR_DURATION_MS : DEFAULT_INFO_DURATION_MS);
+  const variant =
+    durationOrOptions?.variant ?? inferToastVariant(message);
 
-  return { duration, variant };
+  const duration =
+    durationOrOptions?.duration ??
+    (variant === "error"
+      ? DEFAULT_ERROR_DURATION_MS
+      : DEFAULT_INFO_DURATION_MS);
+
+  return {
+    duration,
+    variant,
+  };
 }
 
-function applyToastVariant(root: HTMLDivElement, variant: ToastVariant): void {
-  root.classList.toggle("pi-toast--error", variant === "error");
+function applyToastVariant(
+  root: HTMLDivElement,
+  variant: ToastVariant,
+): void {
+  root.classList.toggle(
+    "pi-toast--error",
+    variant === "error",
+  );
 
   if (variant === "error") {
     root.setAttribute("role", "alert");
@@ -133,61 +169,84 @@ function applyToastVariant(root: HTMLDivElement, variant: ToastVariant): void {
 
 function renderToast(opts: ResolvedToastOptions): void {
   const elements = ensureToastElements();
+
+  clearHideTimer();
+
   applyToastVariant(elements.root, opts.variant);
+
   elements.message.textContent = opts.message;
+
+  const icon = elements.root.querySelector(
+    ".pi-toast__icon",
+  );
+
+  if (icon) {
+    icon.textContent =
+      opts.variant === "error" ? "⚠" : "✓";
+  }
 
   if (opts.action) {
     elements.root.classList.add("pi-toast--action");
+
     elements.action.hidden = false;
     elements.action.textContent = opts.action.label;
+
     elements.action.onclick = () => {
       opts.action?.onAction();
-      elements.root.classList.remove("visible");
-      elements.root.classList.remove("pi-toast--action");
-      elements.root.classList.remove("pi-toast--error");
-      elements.action.hidden = true;
-      elements.action.onclick = null;
-      clearHideTimer();
+      hideToast();
     };
   } else {
     elements.root.classList.remove("pi-toast--action");
+
     elements.action.hidden = true;
     elements.action.onclick = null;
   }
 
   elements.root.classList.add("visible");
+
   scheduleHide(opts.duration);
 
-  // For action toasts, schedule an independent backup hide that can't be
-  // cancelled by a subsequent plain showToast() call.  Adds 1s margin so
-  // the primary timer normally wins.
   if (opts.action) {
-    if (actionHideTimer !== null) clearTimeout(actionHideTimer);
+    if (actionHideTimer !== null) {
+      clearTimeout(actionHideTimer);
+    }
+
     actionHideTimer = setTimeout(() => {
       actionHideTimer = null;
-      // Only hide if the action toast is still showing (not already
-      // dismissed by the user or the primary timer).
+
       if (isActionToastVisible()) {
-        const el = toastElements;
-        if (!el) return;
-        el.root.classList.remove("visible", "pi-toast--action", "pi-toast--error");
-        el.action.hidden = true;
-        el.action.onclick = null;
+        hideToast();
       }
     }, opts.duration + 1000);
   }
 }
 
-export function showToast(message: string, duration?: number): void;
-export function showToast(message: string, options?: ToastOptions): void;
-export function showToast(message: string, durationOrOptions?: number | ToastOptions): void {
-  const normalized = normalizeToastOptions(message, durationOrOptions);
+export function showToast(
+  message: string,
+  duration?: number,
+): void;
 
-  // Don't let a plain info toast overwrite an active action toast — the
-  // action toast has an undo button the user may still need, and replacing
-  // it would also cancel its hide timer, leaving the toast stuck forever.
-  // Error toasts are allowed through — they're higher priority.
-  if (normalized.variant !== "error" && isActionToastVisible()) return;
+export function showToast(
+  message: string,
+  options?: ToastOptions,
+): void;
+
+export function showToast(
+  message: string,
+  durationOrOptions?: number | ToastOptions,
+): void {
+  const normalized = normalizeToastOptions(
+    message,
+    durationOrOptions,
+  );
+
+  // Error toasts always have priority.
+  if (
+    normalized.variant !== "error" &&
+    isActionToastVisible()
+  ) {
+    return;
+  }
 
   renderToast({
     message,
@@ -196,14 +255,45 @@ export function showToast(message: string, durationOrOptions?: number | ToastOpt
   });
 }
 
-export function showActionToast(opts: ActionToastOptions): void {
+export function showActionToast(
+  opts: ActionToastOptions,
+): void {
   renderToast({
     message: opts.message,
-    duration: opts.duration ?? ACTION_TOAST_DEFAULT_MS,
+    duration:
+      opts.duration ?? ACTION_TOAST_DEFAULT_MS,
     variant: "info",
     action: {
       label: opts.actionLabel,
       onAction: opts.onAction,
+    },
+  });
+}
+
+export function showErrorToast(
+  message: string,
+  duration = DEFAULT_ERROR_DURATION_MS,
+): void {
+  renderToast({
+    message,
+    duration,
+    variant: "error",
+  });
+}
+
+export function showErrorActionToast(
+  message: string,
+  actionLabel: string,
+  onAction: () => void,
+  duration = DEFAULT_ERROR_DURATION_MS,
+): void {
+  renderToast({
+    message,
+    duration,
+    variant: "error",
+    action: {
+      label: actionLabel,
+      onAction,
     },
   });
 }
@@ -213,7 +303,9 @@ export function isActionToastVisible(): boolean {
     return false;
   }
 
-  return toastElements.root.classList.contains("visible")
-    && toastElements.root.classList.contains("pi-toast--action")
-    && !toastElements.action.hidden;
+  return (
+    toastElements.root.classList.contains("visible") &&
+    toastElements.root.classList.contains("pi-toast--action") &&
+    !toastElements.action.hidden
+  );
 }

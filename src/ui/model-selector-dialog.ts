@@ -55,6 +55,47 @@ function collectModelItems(modelsRuntime: Models): ModelSelectorItem[] {
   return items;
 }
 
+const FAVORITE_MODELS_STORAGE_KEY = "pi-for-excel.favorite-models";
+
+function favoriteModelKey(provider: string, id: string): string {
+  return `${provider}::${id}`;
+}
+
+function loadFavoriteModelKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FAVORITE_MODELS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((value): value is string =>
+      typeof value === "string" && value.trim().length > 0));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFavoriteModelKeys(keys: Set<string>): void {
+  try {
+    localStorage.setItem(FAVORITE_MODELS_STORAGE_KEY, JSON.stringify(Array.from(keys)));
+  } catch {
+    // Best-effort UI state.
+  }
+}
+
+function isFavoritesQuery(query: string): boolean {
+  const normalized = query.trim().toLowerCase().replace(/\s+/g, "");
+  return normalized === "fav" || normalized === "favorite" || normalized === "favorites";
+}
+
+interface LastSelectedModel {
+  provider: string;
+  id: string;
+}
+
+// Page-lifetime state only. It survives closing/reopening the selector, but
+// resets after a full page reload.
+let lastSelectedModel: LastSelectedModel | null = null;
+
 export function openModelSelectorDialog(options: ModelSelectorDialogOptions): void {
   closeOverlayById(MODEL_SELECTOR_OVERLAY_ID);
 
@@ -67,6 +108,9 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
   let allItems = collectModelItems(options.models);
   let searchQuery = "";
   let selectedIndex = 0;
+  const favoriteModelKeys = loadFavoriteModelKeys();
+  const rememberedModel = lastSelectedModel;
+  let initialPositionRestored = false;
   // Selection follows the mouse only after real pointer movement, so
   // keyboard-triggered scrolling doesn't hand selection to whatever lands
   // under the cursor.
@@ -101,18 +145,23 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
     }
 
     const query = searchQuery.toLowerCase().replace(/\s+/g, "");
+
+    if (isFavoritesQuery(searchQuery)) {
+      return filtered.filter((item) =>
+        favoriteModelKeys.has(favoriteModelKey(item.provider, item.id)),
+      );
+    }
+
     if (query) {
       const scored: Array<{ item: ModelSelectorItem; score: number }> = [];
       for (const item of filtered) {
         const searchText = `${item.provider} ${item.id} ${item.model.name}`.toLowerCase();
         const score = subsequenceScore(query, searchText);
-        if (score > 0) {
-          scored.push({ item, score });
-        }
+        if (score > 0) scored.push({ item, score });
       }
       scored.sort((a, b) => b.score - a.score);
 
-      // Preserve score order, but float the current model to the top.
+      // Preserve existing search behavior: current model is preferred.
       const current = options.currentModel;
       const items = scored.map((entry) => entry.item);
       if (current) {
@@ -125,7 +174,9 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
       return items;
     }
 
-    return orderModelsForSelector(filtered, options.currentModel);
+    // Never reorder the natural/featured model list because of favorites or
+    // current selection. This is critical for restoring the user's position.
+    return orderModelsForSelector(filtered, null);
   };
 
   const scrollSelectedIntoView = (): void => {
@@ -136,12 +187,58 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
   };
 
   const select = (item: ModelSelectorItem): void => {
+    lastSelectedModel = {
+      provider: item.provider,
+      id: item.id,
+    };
     dialog.close();
     options.onSelect(item.model);
   };
 
+  const isFavorite = (item: ModelSelectorItem): boolean => {
+    return favoriteModelKeys.has(
+      favoriteModelKey(item.provider, item.id),
+    );
+  };
+
+  const toggleFavorite = (item: ModelSelectorItem): void => {
+    const key = favoriteModelKey(item.provider, item.id);
+    if (favoriteModelKeys.has(key)) {
+      favoriteModelKeys.delete(key);
+    } else {
+      favoriteModelKeys.add(key);
+    }
+
+    saveFavoriteModelKeys(favoriteModelKeys);
+    // Starring must never reorder the model list.
+    renderList();
+  };
+
   const renderList = (): void => {
     const filtered = getFilteredItems();
+
+    // Restore selection only once when the dialog opens.
+    if (!initialPositionRestored) {
+      if (rememberedModel) {
+        const rememberedIndex = filtered.findIndex((item) =>
+          item.provider === rememberedModel.provider &&
+          item.id === rememberedModel.id,
+        );
+        if (rememberedIndex >= 0) {
+          selectedIndex = rememberedIndex;
+        }
+      } else if (options.currentModel) {
+        const currentIndex = filtered.findIndex((item) =>
+          modelsAreEqual(options.currentModel!, item.model),
+        );
+        if (currentIndex >= 0) {
+          selectedIndex = currentIndex;
+        }
+      }
+
+      initialPositionRestored = true;
+    }
+
     selectedIndex = Math.max(0, Math.min(selectedIndex, filtered.length - 1));
 
     list.replaceChildren();
@@ -168,6 +265,38 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
 
       const topRow = document.createElement("span");
       topRow.className = "pi-model-selector-item-top";
+
+      const favorite = isFavorite(item);
+      row.classList.toggle("pi-model-selector-item--favorite", favorite);
+      const favoriteEl = document.createElement("span");
+      favoriteEl.className = "pi-model-selector-item-favorite";
+      favoriteEl.textContent = favorite ? "★" : "☆";
+      favoriteEl.setAttribute("role", "button");
+      favoriteEl.setAttribute("tabindex", "0");
+      favoriteEl.setAttribute(
+        "aria-label",
+        favorite
+          ? `Remove ${item.id} from favorites`
+          : `Add ${item.id} to favorites`,
+      );
+      favoriteEl.title = favorite
+        ? "Remove from favorites"
+        : "Add to favorites";
+
+      favoriteEl.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleFavorite(item);
+      });
+
+      favoriteEl.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleFavorite(item);
+      });
+
+      topRow.appendChild(favoriteEl);
 
       const idEl = document.createElement("span");
       idEl.className = "pi-model-selector-item-id";
@@ -235,6 +364,14 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
     }
 
     if (event.key === "Enter") {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(".pi-model-selector-item-favorite")
+      ) {
+        return;
+      }
+
       event.preventDefault();
       const filtered = getFilteredItems();
       const item = filtered[selectedIndex];
@@ -249,6 +386,7 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
     if (!dialog.overlay.isConnected) return;
     allItems = collectModelItems(options.models);
     renderList();
+    scrollSelectedIntoView();
   };
   document.addEventListener("pi:models-changed", handleModelsChanged);
   dialog.addCleanup(() => {
@@ -258,4 +396,8 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
   dialog.mount();
   renderList();
   searchInput.focus();
+
+  // Automatically bring the previously/currently selected model into view.
+  // This scrolls only; it never changes model ordering.
+  scrollSelectedIntoView();
 }
