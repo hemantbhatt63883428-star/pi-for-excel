@@ -1,0 +1,145 @@
+/* ═══════════════════════════════════════════════════════
+   8. TOAST
+   ═══════════════════════════════════════════════════════ */
+
+.pi-toast {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  z-index: 99999;
+
+  width: max-content;
+  max-width: min(560px, calc(100vw - 20px));
+  box-sizing: border-box;
+
+  padding: 9px 10px;
+
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+
+  background: oklch(0.18 0 0 / 0.96);
+  color: white;
+
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+
+  box-shadow: 0 8px 26px var(--alpha-20);
+
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px);
+
+  transition:
+    opacity var(--duration-normal),
+    transform var(--duration-normal),
+    background var(--duration-fast),
+    border-color var(--duration-fast);
+
+  pointer-events: none;
+}
+
+.pi-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.pi-toast--error {
+  background: oklch(0.34 0.17 25 / 0.97);
+  border-color: oklch(0.68 0.14 25 / 0.44);
+}
+
+.pi-toast--action {
+  pointer-events: auto;
+}
+
+.pi-toast__content {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  width: 100%;
+  min-width: 0;
+  max-width: min(540px, calc(100vw - 40px));
+
+  text-align: left;
+}
+
+.pi-toast__icon {
+  flex: 0 0 auto;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 20px;
+  height: 20px;
+
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pi-toast__message {
+  flex: 1 1 auto;
+  min-width: 0;
+
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.pi-toast__action {
+  flex: 0 0 auto;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+
+  margin: 0;
+  padding: 0;
+
+  border: 1px solid oklch(1 0 0 / 0.40);
+  border-radius: var(--radius-full);
+
+  background: oklch(1 0 0 / 0.12);
+  color: white;
+
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+
+  cursor: pointer;
+  white-space: nowrap;
+
+  transition:
+    background var(--duration-fast),
+    border-color var(--duration-fast);
+}
+
+.pi-toast__action:hover {
+  background: var(--white-alpha-20);
+  border-color: oklch(1 0 0 / 0.60);
+}
+
+.pi-toast__action:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+@media (max-width: 420px) {
+  .pi-toast {
+    top: 8px;
+    max-width: calc(100vw - 12px);
+    padding: 8px;
+  }
+
+  .pi-toast__content {
+    max-width: calc(100vw - 28px);
+    gap: 7px;
+  }
+}
