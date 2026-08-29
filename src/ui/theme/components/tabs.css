@@ -18,18 +18,14 @@ pi-sidebar {
   align-items: center;
   gap: 6px;
   padding: 7px 8px 6px;
-  /* Reserve space for Office's ⓘ button (injected, ~36px wide, top-right) */
   padding-right: 44px;
-
-  /* ── Liquid glass surface ── */
   background: transparent;
-
   flex-shrink: 0;
   position: relative;
   z-index: 10;
 }
 
-/* Liquid glass fade — tab strip dissolves into content below */
+/* Tab strip fade */
 .pi-session-tabs::after {
   content: '';
   position: absolute;
@@ -78,7 +74,11 @@ pi-sidebar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast), opacity var(--duration-fast);
+  transition:
+    background var(--duration-fast),
+    border-color var(--duration-fast),
+    color var(--duration-fast),
+    opacity var(--duration-fast);
 }
 
 .pi-session-tabs__scroll:hover {
@@ -238,7 +238,10 @@ pi-sidebar {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);
+  transition:
+    background var(--duration-fast),
+    color var(--duration-fast),
+    border-color var(--duration-fast);
 }
 
 .pi-session-tabs__new:hover {
@@ -264,15 +267,32 @@ pi-sidebar {
   color: oklch(0.43 0.02 160);
 }
 
+
+/* ═══════════════════════════════════════════════════════
+   TAB CONTEXT MENU
+   Solid + compact + text-sized
+   ═══════════════════════════════════════════════════════ */
+
 .pi-session-tab-context-menu {
-  min-width: 170px;
+  min-width: 0;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 24px));
+
   padding: 4px;
-  border-radius: var(--radius-sm);
+
   border: 1px solid var(--alpha-12);
-  background: var(--glass-bg-solid);
-  backdrop-filter: var(--glass-blur-dropdown);
-  -webkit-backdrop-filter: var(--glass-blur-dropdown);
-  box-shadow: var(--glass-shadow-lg), var(--glass-highlight), var(--glass-inner-shadow);
+  border-radius: var(--radius-sm);
+
+  /* Solid background — no transparency */
+  background: #ffffff;
+
+  /* Remove glass/translucent effect */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+
+  overflow: hidden;
 }
 
 .pi-session-tab-context-menu--floating {
@@ -281,21 +301,36 @@ pi-sidebar {
 }
 
 .pi-session-tab-context-menu__item {
+  display: block;
   width: 100%;
+
   border: none;
   border-radius: var(--radius-xs);
+
   background: transparent;
   color: var(--foreground);
+
   font-family: var(--font-sans);
   font-size: var(--text-sm);
+  font-weight: 400;
+
   text-align: left;
-  padding: 6px 8px;
+
+  /* Compact spacing */
+  padding: 5px 8px;
+
   cursor: pointer;
-  transition: background var(--duration-fast), color var(--duration-fast), opacity var(--duration-fast);
+
+  white-space: nowrap;
+
+  transition:
+    background var(--duration-fast),
+    color var(--duration-fast),
+    opacity var(--duration-fast);
 }
 
 .pi-session-tab-context-menu__item:hover:not(:disabled) {
-  background: var(--white-alpha-45);
+  background: #f2f2f2;
 }
 
 .pi-session-tab-context-menu__item:disabled {
@@ -309,16 +344,14 @@ pi-sidebar {
 
 .pi-session-tab-context-menu__divider {
   height: 1px;
-  margin: 4px 6px;
-  background: linear-gradient(
-    90deg,
-    var(--white-alpha-40),
-    var(--alpha-6),
-    var(--white-alpha-40)
-  );
+  margin: 3px 4px;
+  background: #e5e5e5;
 }
 
-/* ── Utilities menu trigger (gear in tab strip) ── */
+
+/* ═══════════════════════════════════════════════════════
+   Utilities menu trigger
+   ═══════════════════════════════════════════════════════ */
 
 .pi-utilities-anchor {
   position: relative;
@@ -339,7 +372,10 @@ pi-sidebar {
   justify-content: center;
   line-height: 1;
   flex-shrink: 0;
-  box-shadow: var(--glass-shadow), var(--glass-highlight), var(--glass-inner-shadow);
+  box-shadow:
+    var(--glass-shadow),
+    var(--glass-highlight),
+    var(--glass-inner-shadow);
   transition:
     background var(--duration-fast),
     color var(--duration-fast),
@@ -361,10 +397,17 @@ pi-sidebar {
 }
 
 .pi-utilities-btn:hover {
-  background: linear-gradient(170deg, var(--white-alpha-80), var(--white-alpha-50));
+  background: linear-gradient(
+    170deg,
+    var(--white-alpha-80),
+    var(--white-alpha-50)
+  );
   color: var(--foreground);
   border-color: var(--alpha-20);
-  box-shadow: var(--glass-shadow-lg), var(--glass-highlight), var(--glass-inner-shadow);
+  box-shadow:
+    var(--glass-shadow-lg),
+    var(--glass-highlight),
+    var(--glass-inner-shadow);
   transform: translateY(-1px);
 }
 
@@ -375,16 +418,32 @@ pi-sidebar {
 .pi-utilities-btn:focus-visible {
   outline: none;
   border-color: var(--green-alpha-30);
-  box-shadow: 0 0 0 2px var(--green-alpha-14), var(--glass-shadow), var(--glass-highlight), var(--glass-inner-shadow);
+  box-shadow:
+    0 0 0 2px var(--green-alpha-14),
+    var(--glass-shadow),
+    var(--glass-highlight),
+    var(--glass-inner-shadow);
 }
 
 .pi-utilities-btn[aria-expanded="true"] {
-  background: linear-gradient(170deg, var(--white-alpha-80), var(--white-alpha-55));
+  background: linear-gradient(
+    170deg,
+    var(--white-alpha-80),
+    var(--white-alpha-55)
+  );
   color: var(--foreground);
   border-color: var(--green-alpha-30);
-  box-shadow: 0 0 0 1px var(--green-alpha-20), var(--glass-shadow), var(--glass-highlight), var(--glass-inner-shadow);
+  box-shadow:
+    0 0 0 1px var(--green-alpha-20),
+    var(--glass-shadow),
+    var(--glass-highlight),
+    var(--glass-inner-shadow);
 }
 
+
+/* ═══════════════════════════════════════════════════════
+   Messages
+   ═══════════════════════════════════════════════════════ */
 
 .pi-messages {
   flex: 1;
@@ -392,7 +451,6 @@ pi-sidebar {
   overflow-x: hidden;
   min-height: 0;
   position: relative;
-  /* We drive chat stick-to-bottom in JS; disable browser anchoring jitter. */
   overflow-anchor: none;
 }
 
@@ -403,7 +461,11 @@ pi-sidebar {
   gap: 4px;
 }
 
-/* Footer surfaces (widget slot + input footer) */
+
+/* ═══════════════════════════════════════════════════════
+   Footer surfaces
+   ═══════════════════════════════════════════════════════ */
+
 :is(.pi-input-area, .pi-widget-slot) {
   flex-shrink: 0;
   padding: 6px 10px;
@@ -412,7 +474,6 @@ pi-sidebar {
   background: transparent;
 }
 
-/* Input footer — soft fade into content above */
 .pi-input-area::before {
   content: '';
   position: absolute;
@@ -420,7 +481,11 @@ pi-sidebar {
   left: 0;
   right: 0;
   height: 10px;
-  background: linear-gradient(to top, var(--alpha-4), transparent);
+  background: linear-gradient(
+    to top,
+    var(--alpha-4),
+    transparent
+  );
   pointer-events: none;
 }
 
@@ -439,5 +504,3 @@ pi-sidebar {
     padding: 4px 8px;
   }
 }
-
-

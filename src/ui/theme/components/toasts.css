@@ -4,24 +4,40 @@
 
 .pi-toast {
   position: fixed;
-  top: 56px;
+  top: 16px;
   left: 50%;
-  transform: translateX(-50%) translateY(-4px);
-  z-index: 200;
-  padding: 6px 14px;
+  transform: translateX(-50%) translateY(-8px);
+
+  z-index: 9999;
+
+  width: max-content;
+  max-width: min(560px, calc(100vw - 24px));
+
+  padding: 9px 10px;
+
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
-  background: oklch(0.18 0 0 / 0.88);
+
+  background: oklch(0.18 0 0 / 0.94);
   color: white;
+
   font-family: var(--font-sans);
   font-size: var(--text-sm);
+
   backdrop-filter: var(--glass-blur-dropdown);
   -webkit-backdrop-filter: var(--glass-blur-dropdown);
-  box-shadow: 0 4px 12px var(--alpha-15);
+
+  box-shadow: 0 6px 20px var(--alpha-15);
+
   opacity: 0;
-  transition: opacity var(--duration-normal), transform var(--duration-normal), background var(--duration-fast), border-color var(--duration-fast);
+
+  transition:
+    opacity var(--duration-normal),
+    transform var(--duration-normal),
+    background var(--duration-fast),
+    border-color var(--duration-fast);
+
   pointer-events: none;
-  max-width: calc(100vw - 24px);
 }
 
 .pi-toast.visible {
@@ -30,9 +46,11 @@
 }
 
 .pi-toast--error {
-  background: oklch(0.34 0.17 25 / 0.95);
-  border-color: oklch(0.68 0.14 25 / 0.38);
-  box-shadow: 0 6px 16px oklch(0.20 0.10 25 / 0.38);
+  background: oklch(0.34 0.17 25 / 0.96);
+  border-color: oklch(0.68 0.14 25 / 0.42);
+
+  box-shadow:
+    0 6px 20px oklch(0.20 0.10 25 / 0.40);
 }
 
 .pi-toast--action {
@@ -40,39 +58,79 @@
 }
 
 .pi-toast__content {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  max-width: min(560px, calc(100vw - 48px));
+  gap: 9px;
+
+  width: 100%;
+  max-width: min(540px, calc(100vw - 44px));
+
   text-align: left;
 }
 
+.pi-toast__icon {
+  flex: 0 0 auto;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 20px;
+  height: 20px;
+
+  font-size: 13px;
+  line-height: 1;
+}
+
 .pi-toast__message {
+  flex: 1 1 auto;
+
+  min-width: 0;
+
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .pi-toast__action {
-  border: 1px solid oklch(1 0 0 / 0.35);
-  /* Intentional pill shape for floating action toast. */
+  flex: 0 0 auto;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 28px;
+  min-height: 28px;
+
+  padding: 2px 8px;
+
+  border: 1px solid oklch(1 0 0 / 0.38);
   border-radius: var(--radius-full);
-  padding: 2px 9px;
+
   background: oklch(1 0 0 / 0.12);
   color: white;
+
   font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+
   cursor: pointer;
   white-space: nowrap;
-  /* Overlap the toast's vertical padding so action toasts keep the same
-     height as plain message toasts. */
-  margin-block: -3px;
+
+  transition:
+    background var(--duration-fast),
+    border-color var(--duration-fast);
 }
 
 .pi-toast__action:hover {
   background: var(--white-alpha-20);
+  border-color: oklch(1 0 0 / 0.60);
+}
+
+.pi-toast__action:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
 }
 
 .pi-toast--error .pi-toast__action {
@@ -80,4 +138,24 @@
   background: oklch(1 0 0 / 0.16);
 }
 
+.pi-toast--error .pi-toast__action:hover {
+  background: oklch(1 0 0 / 0.25);
+}
 
+/* Keep the toast compact on narrow Excel sidebars. */
+@media (max-width: 420px) {
+  .pi-toast {
+    top: 10px;
+    max-width: calc(100vw - 16px);
+    padding: 8px;
+  }
+
+  .pi-toast__content {
+    max-width: calc(100vw - 32px);
+    gap: 7px;
+  }
+
+  .pi-toast__message {
+    font-size: var(--text-sm);
+  }
+}
