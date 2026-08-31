@@ -384,3 +384,34 @@ void test("credential adapter does not reinterpret OAuth records as browser API 
     /taskpane OAuth store/,
   );
 });
+
+void test("custom gateway never calls /models — only the user-configured model id is shown", async () => {
+  let discoveryCallCount = 0;
+
+  const runtime = createRuntime({
+    fetchFn: async (url) => {
+      if (String(url).endsWith("/models")) {
+        discoveryCallCount++;
+      }
+      // Return a valid models payload even though it should never be called.
+      return new Response(
+        JSON.stringify({ data: [{ id: "remote-model-1" }, { id: "remote-model-2" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    },
+  });
+
+  await runtime.syncCustomProviders([gatewayProvider()]);
+  await runtime.refresh({ allowNetwork: true });
+
+  assert.equal(
+    discoveryCallCount,
+    0,
+    "must not hit /models — user already specified the model id",
+  );
+
+  const providerId = "Gateway · Acme";
+  const visible = runtime.models.getModels(providerId);
+  assert.equal(visible.length, 1, "should expose exactly the one configured model");
+  assert.equal(visible[0]?.id, "configured-model", "model id must match what the user set");
+});
