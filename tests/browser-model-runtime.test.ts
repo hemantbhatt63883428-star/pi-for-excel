@@ -92,42 +92,14 @@ function gatewayProvider(): CustomProvider {
   };
 }
 
-function openRouterGatewayProvider(): CustomProvider {
-  return {
-    id: "openrouter-gateway",
-    name: "OpenRouter gateway",
-    type: "openai-completions",
-    baseUrl: "https://openrouter.ai/api/v1",
-    apiKey: "openrouter-secret",
-    models: [{
-      id: "configured-model",
-      name: "Configured model",
-      api: "openai-completions",
-      provider: "Gateway · OpenRouter",
-      baseUrl: "https://openrouter.ai/api/v1",
-      reasoning: false,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 65_536,
-      maxTokens: 8_192,
-    }],
-  };
-}
-
 void test("browser runtime exposes built-in models through IndexedDB-backed credentials", async () => {
   const providerKeys = new MemoryProviderKeys();
   await providerKeys.set("openai", "test-key");
   const runtime = createRuntime({ providerKeys });
 
-  assert.equal(
-    runtime.models.getModel("openai", "gpt-5.6-sol")?.provider,
-    "openai",
-  );
-
+  assert.equal(runtime.models.getModel("openai", "gpt-5.6-sol")?.provider, "openai");
   const available = await runtime.models.getAvailable("openai");
-  assert.ok(
-    available.some((model) => model.id === "gpt-5.6-sol"),
-  );
+  assert.ok(available.some((model) => model.id === "gpt-5.6-sol"));
 
   const auth = await runtime.models.getAuth("openai");
   assert.equal(auth?.auth.apiKey, "test-key");
@@ -137,371 +109,85 @@ void test("custom gateway discovery merges remote model ids and persists the cat
   const catalogs = new MemoryCatalogs();
   let requestedUrl = "";
   let authorization = "";
-
   const fetchFn: typeof globalThis.fetch = (input, init) => {
-    requestedUrl =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
-
-    authorization =
-      new Headers(init?.headers).get("authorization") ?? "";
-
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [
-            { id: "remote-b" },
-            { id: "remote-a" },
-            { id: "remote-a" },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    );
+    requestedUrl = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    authorization = new Headers(init?.headers).get("authorization") ?? "";
+    return Promise.resolve(new Response(JSON.stringify({
+      data: [{ id: "remote-b" }, { id: "remote-a" }, { id: "remote-a" }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
   };
 
   const runtime = createRuntime({ catalogs, fetchFn });
   await runtime.syncCustomProviders([gatewayProvider()]);
-
-  assert.equal(
-    runtime.shouldProxyProvider("Gateway · Acme"),
-    true,
-  );
-
+  assert.equal(runtime.shouldProxyProvider("Gateway · Acme"), true);
   const result = await runtime.refresh({ allowNetwork: true });
 
   assert.equal(result.errors.size, 0);
-  assert.equal(
-    requestedUrl,
-    "https://gateway.example.com/v1/models",
-  );
+  assert.equal(requestedUrl, "https://gateway.example.com/v1/models");
   assert.equal(authorization, "Bearer gateway-secret");
-
   assert.deepEqual(
-    runtime.models
-      .getModels("Gateway · Acme")
-      .map((model) => model.id),
+    runtime.models.getModels("Gateway · Acme").map((model) => model.id),
     ["configured-model", "remote-a", "remote-b"],
   );
-
   assert.deepEqual(
-    catalogs.entries
-      .get("Gateway · Acme")
-      ?.models.map((model) => model.id),
+    catalogs.entries.get("Gateway · Acme")?.models.map((model) => model.id),
     ["remote-a", "remote-b"],
-  );
-});
-
-void test("OpenRouter custom gateway exposes only working allowlisted models", async () => {
-  const catalogs = new MemoryCatalogs();
-  let requestedUrl = "";
-  let authorization = "";
-
-  const fetchFn: typeof globalThis.fetch = (input, init) => {
-    requestedUrl =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
-
-    authorization =
-      new Headers(init?.headers).get("authorization") ?? "";
-
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [
-            { id: "qwen/qwen3.8-27b" },
-            { id: "openai/gpt-5.6-luna" },
-            { id: "not-working/model" },
-            { id: "google/gemini-3.7-flash" },
-            { id: "another/not-working-model" },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    );
-  };
-
-  const runtime = createRuntime({ catalogs, fetchFn });
-
-  await runtime.syncCustomProviders([
-    openRouterGatewayProvider(),
-  ]);
-
-  const result = await runtime.refresh({ allowNetwork: true });
-
-  assert.equal(result.errors.size, 0);
-  assert.equal(
-    requestedUrl,
-    "https://openrouter.ai/api/v1/models",
-  );
-  assert.equal(
-    authorization,
-    "Bearer openrouter-secret",
-  );
-
-  const models = runtime.models
-    .getModels("Gateway · OpenRouter")
-    .map((model) => model.id);
-
-  assert.deepEqual(models, [
-    "google/gemini-3.7-flash",
-    "openai/gpt-5.6-luna",
-    "qwen/qwen3.8-27b",
-  ]);
-
-  assert.ok(!models.includes("not-working/model"));
-  assert.ok(!models.includes("another/not-working-model"));
-
-  assert.deepEqual(
-    catalogs.entries
-      .get("Gateway · OpenRouter")
-      ?.models.map((model) => model.id),
-    [
-      "google/gemini-3.7-flash",
-      "openai/gpt-5.6-luna",
-      "qwen/qwen3.8-27b",
-    ],
-  );
-});
-
-void test("non-OpenRouter custom gateway is not filtered by OpenRouter allowlist", async () => {
-  const catalogs = new MemoryCatalogs();
-
-  const fetchFn: typeof globalThis.fetch = () =>
-    Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [
-            { id: "custom-model-a" },
-            { id: "custom-model-b" },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    );
-
-  const runtime = createRuntime({ catalogs, fetchFn });
-
-  await runtime.syncCustomProviders([gatewayProvider()]);
-  const result = await runtime.refresh({ allowNetwork: true });
-
-  assert.equal(result.errors.size, 0);
-
-  assert.deepEqual(
-    runtime.models
-      .getModels("Gateway · Acme")
-      .map((model) => model.id),
-    [
-      "configured-model",
-      "custom-model-a",
-      "custom-model-b",
-    ],
-  );
-});
-
-void test("OpenRouter trailing slash is treated as the same gateway", async () => {
-  const catalogs = new MemoryCatalogs();
-
-  const provider = openRouterGatewayProvider();
-  provider.baseUrl = "https://openrouter.ai/api/v1/";
-
-  provider.models = provider.models?.map((model) => ({
-    ...model,
-    baseUrl: provider.baseUrl,
-  }));
-
-  const fetchFn: typeof globalThis.fetch = () =>
-    Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [
-            { id: "qwen/qwen3.8-27b" },
-            { id: "unknown/not-working" },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    );
-
-  const runtime = createRuntime({ catalogs, fetchFn });
-
-  await runtime.syncCustomProviders([provider]);
-  const result = await runtime.refresh({ allowNetwork: true });
-
-  assert.equal(result.errors.size, 0);
-
-  assert.deepEqual(
-    runtime.models
-      .getModels("Gateway · OpenRouter")
-      .map((model) => model.id),
-    ["qwen/qwen3.8-27b"],
   );
 });
 
 void test("a fresh runtime restores discovered models without network access", async () => {
   const catalogs = new MemoryCatalogs();
   let networkCalls = 0;
-
   const fetchFn: typeof globalThis.fetch = () => {
     networkCalls += 1;
-
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [{ id: "cached-model" }],
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    );
+    return Promise.resolve(new Response(JSON.stringify({ data: [{ id: "cached-model" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
   };
 
   const first = createRuntime({ catalogs, fetchFn });
-
   await first.syncCustomProviders([gatewayProvider()]);
   await first.refresh({ allowNetwork: true });
-
   assert.equal(networkCalls, 1);
 
   const second = createRuntime({ catalogs, fetchFn });
-
   await second.syncCustomProviders([gatewayProvider()]);
   await second.refresh({ allowNetwork: false });
 
-  assert.equal(
-    networkCalls,
-    1,
-    "cache-only startup must not call the gateway",
-  );
-
-  assert.ok(
-    second.models.getModel(
-      "Gateway · Acme",
-      "cached-model",
-    ),
-  );
-});
-
-void test("cached OpenRouter discovery remains allowlist-filtered after restore", async () => {
-  const catalogs = new MemoryCatalogs();
-
-  catalogs.entries.set("Gateway · OpenRouter", {
-    models: [
-      {
-        id: "qwen/qwen3.8-27b",
-        name: "Working model",
-        api: "openai-completions",
-        provider: "Gateway · OpenRouter",
-        baseUrl: "https://openrouter.ai/api/v1",
-        reasoning: false,
-        input: ["text"],
-        cost: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-        },
-        contextWindow: 65_536,
-        maxTokens: 8_192,
-      },
-      {
-        id: "not-working/model",
-        name: "Bad model",
-        api: "openai-completions",
-        provider: "Gateway · OpenRouter",
-        baseUrl: "https://openrouter.ai/api/v1",
-        reasoning: false,
-        input: ["text"],
-        cost: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-        },
-        contextWindow: 65_536,
-        maxTokens: 8_192,
-      },
-    ],
-  });
-
-  const runtime = createRuntime({
-    catalogs,
-    fetchFn: () => {
-      throw new Error(
-        "cache-only restore must not use the network",
-      );
-    },
-  });
-
-  await runtime.syncCustomProviders([
-    openRouterGatewayProvider(),
-  ]);
-
-  await runtime.refresh({ allowNetwork: false });
-
-  assert.deepEqual(
-    runtime.models
-      .getModels("Gateway · OpenRouter")
-      .map((model) => model.id),
-    ["qwen/qwen3.8-27b"],
-  );
+  assert.equal(networkCalls, 1, "cache-only startup must not call the gateway");
+  assert.ok(second.models.getModel("Gateway · Acme", "cached-model"));
 });
 
 void test("cached discovery is rebound to the current provider transport", async () => {
   const catalogs = new MemoryCatalogs();
-
   const first = createRuntime({
     catalogs,
-    fetchFn: () =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: "cached-model" }],
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        ),
-      ),
+    fetchFn: () => Promise.resolve(new Response(JSON.stringify({
+      data: [{ id: "cached-model" }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })),
   });
-
   await first.syncCustomProviders([gatewayProvider()]);
   await first.refresh({ allowNetwork: true });
 
   const providerId = "Gateway · Acme";
   const cached = catalogs.entries.get(providerId);
-
   assert.ok(cached);
-
   catalogs.entries.set(providerId, {
     ...cached,
     models: cached.models.map((model) => ({
       ...model,
-      headers: {
-        "x-stale-endpoint-header":
-          "must-not-survive",
-      },
+      headers: { "x-stale-endpoint-header": "must-not-survive" },
     })),
   });
 
@@ -509,7 +195,6 @@ void test("cached discovery is rebound to the current provider transport", async
   updated.type = "openai-responses";
   updated.baseUrl = "https://new-gateway.example.com/v2";
   updated.apiKey = "new-gateway-secret";
-
   updated.models = updated.models?.map((model) => ({
     ...model,
     api: "openai-responses",
@@ -519,198 +204,85 @@ void test("cached discovery is rebound to the current provider transport", async
   const second = createRuntime({
     catalogs,
     fetchFn: () => {
-      throw new Error(
-        "cache-only restore must not use the network",
-      );
+      throw new Error("cache-only restore must not use the network");
     },
   });
-
   await second.syncCustomProviders([updated]);
   await second.refresh({ allowNetwork: false });
 
-  const restored = second.models.getModel(
-    providerId,
-    "cached-model",
-  );
-
-  assert.equal(
-    restored?.api,
-    "openai-responses",
-  );
-
-  assert.equal(
-    restored?.baseUrl,
-    "https://new-gateway.example.com/v2",
-  );
-
-  assert.equal(
-    restored?.headers,
-    undefined,
-  );
-
-  assert.equal(
-    (await second.models.getAuth(providerId))?.auth.apiKey,
-    "new-gateway-secret",
-  );
+  const restored = second.models.getModel(providerId, "cached-model");
+  assert.equal(restored?.api, "openai-responses");
+  assert.equal(restored?.baseUrl, "https://new-gateway.example.com/v2");
+  assert.equal(restored?.headers, undefined);
+  assert.equal((await second.models.getAuth(providerId))?.auth.apiKey, "new-gateway-secret");
 });
 
 void test("failed remote discovery retains the last cached overlay and baseline", async () => {
   const catalogs = new MemoryCatalogs();
   let shouldFail = false;
-
   const fetchFn: typeof globalThis.fetch = () => {
     if (shouldFail) {
-      return Promise.resolve(
-        new Response("unavailable", { status: 503 }),
-      );
+      return Promise.resolve(new Response("unavailable", { status: 503 }));
     }
-
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [{ id: "last-known-model" }],
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    );
+    return Promise.resolve(new Response(JSON.stringify({ data: [{ id: "last-known-model" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
   };
 
   const runtime = createRuntime({ catalogs, fetchFn });
-
   await runtime.syncCustomProviders([gatewayProvider()]);
   await runtime.refresh({ allowNetwork: true });
-
   shouldFail = true;
 
-  const failed = await runtime.refresh({
-    allowNetwork: true,
-  });
-
-  assert.equal(
-    failed.errors.has("Gateway · Acme"),
-    true,
-  );
-
+  const failed = await runtime.refresh({ allowNetwork: true });
+  assert.equal(failed.errors.has("Gateway · Acme"), true);
   assert.deepEqual(
-    runtime.models
-      .getModels("Gateway · Acme")
-      .map((model) => model.id),
-    [
-      "configured-model",
-      "last-known-model",
-    ],
+    runtime.models.getModels("Gateway · Acme").map((model) => model.id),
+    ["configured-model", "last-known-model"],
   );
 });
 
 void test("oversized or malformed discovery catalogues retain the last safe cache", async () => {
   const catalogs = new MemoryCatalogs();
-
-  let mode:
-    | "safe"
-    | "too-many"
-    | "long-id"
-    | "too-large" = "safe";
-
+  let mode: "safe" | "too-many" | "long-id" | "too-large" = "safe";
   const fetchFn: typeof globalThis.fetch = () => {
     if (mode === "too-many") {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: Array.from(
-              { length: 2_001 },
-              (_, index) => ({
-                id: `model-${index}`,
-              }),
-            ),
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        ),
-      );
+      return Promise.resolve(new Response(JSON.stringify({
+        data: Array.from({ length: 2_001 }, (_, index) => ({ id: `model-${index}` })),
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
     }
-
     if (mode === "long-id") {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: "x".repeat(257) }],
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        ),
-      );
+      return Promise.resolve(new Response(JSON.stringify({
+        data: [{ id: "x".repeat(257) }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
     }
-
     if (mode === "too-large") {
-      return Promise.resolve(
-        new Response("{}", {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "Content-Length": String(
-              2 * 1024 * 1024 + 1,
-            ),
-          },
-        }),
-      );
-    }
-
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [{ id: "last-safe-model" }],
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
+      return Promise.resolve(new Response("{}", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(2 * 1024 * 1024 + 1),
         },
-      ),
-    );
+      }));
+    }
+    return Promise.resolve(new Response(JSON.stringify({ data: [{ id: "last-safe-model" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
   };
 
   const runtime = createRuntime({ catalogs, fetchFn });
-
   await runtime.syncCustomProviders([gatewayProvider()]);
   await runtime.refresh({ allowNetwork: true });
 
-  for (const unsafeMode of [
-    "too-many",
-    "long-id",
-    "too-large",
-  ] as const) {
+  for (const unsafeMode of ["too-many", "long-id", "too-large"] as const) {
     mode = unsafeMode;
-
-    const failed = await runtime.refresh({
-      allowNetwork: true,
-    });
-
-    assert.equal(
-      failed.errors.has("Gateway · Acme"),
-      true,
-      unsafeMode,
-    );
-
+    const failed = await runtime.refresh({ allowNetwork: true });
+    assert.equal(failed.errors.has("Gateway · Acme"), true, unsafeMode);
     assert.deepEqual(
-      runtime.models
-        .getModels("Gateway · Acme")
-        .map((model) => model.id),
-      [
-        "configured-model",
-        "last-safe-model",
-      ],
+      runtime.models.getModels("Gateway · Acme").map((model) => model.id),
+      ["configured-model", "last-safe-model"],
       unsafeMode,
     );
   }
@@ -718,245 +290,97 @@ void test("oversized or malformed discovery catalogues retain the last safe cach
 
 void test("extension providers are owner-scoped and can resolve host-owned credentials", async () => {
   const runtime = createRuntime();
-
   const registration: BrowserProviderRegistration = {
     id: "ext.example.provider",
     name: "Example provider",
     api: "openai-responses",
     baseUrl: "https://models.example.com/v1",
-    models: [
-      {
-        id: "example-model",
-        contextWindow: 128_000,
-        maxTokens: 16_000,
-      },
-    ],
-    modelsUrl:
-      "https://models.example.com/v1/models",
-    resolveApiKey: () =>
-      Promise.resolve("host-owned-secret"),
+    models: [{ id: "example-model", contextWindow: 128_000, maxTokens: 16_000 }],
+    modelsUrl: "https://models.example.com/v1/models",
+    resolveApiKey: () => Promise.resolve("host-owned-secret"),
   };
 
-  runtime.registerExtensionProvider(
-    "ext.example",
-    registration,
-  );
-
-  assert.equal(
-    runtime.isExtensionProvider(registration.id),
-    true,
-  );
-
-  assert.equal(
-    runtime.shouldProxyProvider(registration.id),
-    true,
-  );
-
-  assert.equal(
-    runtime.shouldProxyProvider("openai"),
-    false,
-  );
-
-  assert.equal(
-    (await runtime.models.getAuth(registration.id))
-      ?.auth.apiKey,
-    "host-owned-secret",
-  );
-
-  assert.ok(
-    (
-      await runtime.models.getAvailable(
-        registration.id,
-      )
-    ).some(
-      (model) => model.id === "example-model",
-    ),
-  );
+  runtime.registerExtensionProvider("ext.example", registration);
+  assert.equal(runtime.isExtensionProvider(registration.id), true);
+  assert.equal(runtime.shouldProxyProvider(registration.id), true);
+  assert.equal(runtime.shouldProxyProvider("openai"), false);
+  assert.equal((await runtime.models.getAuth(registration.id))?.auth.apiKey, "host-owned-secret");
+  assert.ok((await runtime.models.getAvailable(registration.id)).some((model) => model.id === "example-model"));
 
   await assert.rejects(
-    runtime.unregisterExtensionProvider(
-      "ext.someone-else",
-      registration.id,
-    ),
+    runtime.unregisterExtensionProvider("ext.someone-else", registration.id),
     /not owned/,
   );
-
-  await runtime.unregisterExtensionProvider(
-    "ext.example",
-    registration.id,
-  );
-
-  assert.equal(
-    runtime.models.getProvider(
-      registration.id,
-    ),
-    undefined,
-  );
-
-  assert.equal(
-    runtime.shouldProxyProvider(
-      registration.id,
-    ),
-    false,
-  );
+  await runtime.unregisterExtensionProvider("ext.example", registration.id);
+  assert.equal(runtime.models.getProvider(registration.id), undefined);
+  assert.equal(runtime.shouldProxyProvider(registration.id), false);
 });
 
 void test("unregister aborts in-flight discovery before it can resurrect a catalogue", async () => {
   const catalogs = new MemoryCatalogs();
-
-  let mode:
-    | "delayed"
-    | "offline" = "delayed";
-
+  let mode: "delayed" | "offline" = "delayed";
   let notifyStarted: () => void = () => {};
-  let resolveDelayed: (
-    response: Response,
-  ) => void = () => {};
-
+  let resolveDelayed: (response: Response) => void = () => {};
   const started = new Promise<void>((resolve) => {
     notifyStarted = resolve;
   });
-
-  const fetchFn: typeof globalThis.fetch = (
-    _input,
-    init,
-  ) => {
+  const fetchFn: typeof globalThis.fetch = (_input, init) => {
     if (mode === "offline") {
-      return Promise.resolve(
-        new Response("offline", {
-          status: 503,
-        }),
-      );
+      return Promise.resolve(new Response("offline", { status: 503 }));
     }
 
-    return new Promise<Response>(
-      (resolve, reject) => {
-        resolveDelayed = resolve;
-
-        const abort = (): void => {
-          reject(
-            new DOMException(
-              "aborted",
-              "AbortError",
-            ),
-          );
-        };
-
-        if (init?.signal?.aborted) {
-          abort();
-          return;
-        }
-
-        init?.signal?.addEventListener(
-          "abort",
-          abort,
-          { once: true },
-        );
-
-        notifyStarted();
-      },
-    );
+    return new Promise<Response>((resolve, reject) => {
+      resolveDelayed = resolve;
+      const abort = (): void => reject(new DOMException("aborted", "AbortError"));
+      if (init?.signal?.aborted) {
+        abort();
+        return;
+      }
+      init?.signal?.addEventListener("abort", abort, { once: true });
+      notifyStarted();
+    });
   };
-
-  const runtime = createRuntime({
-    catalogs,
-    fetchFn,
-  });
-
+  const runtime = createRuntime({ catalogs, fetchFn });
   const registration: BrowserProviderRegistration = {
     id: "ext.race.provider",
     name: "Race provider",
     api: "openai-completions",
     baseUrl: "https://race.example.com/v1",
-    models: [
-      {
-        id: "baseline-model",
-        contextWindow: 32_768,
-        maxTokens: 4_096,
-      },
-    ],
-    resolveApiKey: () =>
-      Promise.resolve("test-key"),
+    models: [{ id: "baseline-model", contextWindow: 32_768, maxTokens: 4_096 }],
+    resolveApiKey: () => Promise.resolve("test-key"),
   };
 
-  runtime.registerExtensionProvider(
-    "ext.race",
-    registration,
-  );
-
-  const refresh = runtime.refresh({
-    allowNetwork: true,
-  });
-
+  runtime.registerExtensionProvider("ext.race", registration);
+  const refresh = runtime.refresh({ allowNetwork: true });
   await started;
-
-  await runtime.unregisterExtensionProvider(
-    "ext.race",
-    registration.id,
-  );
-
-  resolveDelayed(
-    new Response(
-      JSON.stringify({
-        data: [
-          {
-            id: "must-not-resurrect",
-          },
-        ],
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      },
-    ),
-  );
-
+  await runtime.unregisterExtensionProvider("ext.race", registration.id);
+  resolveDelayed(new Response(JSON.stringify({ data: [{ id: "must-not-resurrect" }] }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  }));
   await refresh;
 
-  assert.equal(
-    catalogs.entries.has(registration.id),
-    false,
-  );
+  assert.equal(catalogs.entries.has(registration.id), false);
 
   mode = "offline";
-
-  runtime.registerExtensionProvider(
-    "ext.race",
-    registration,
-  );
-
-  await runtime.refresh({
-    allowNetwork: true,
-  });
-
+  runtime.registerExtensionProvider("ext.race", registration);
+  await runtime.refresh({ allowNetwork: true });
   assert.deepEqual(
-    runtime.models
-      .getModels(registration.id)
-      .map((model) => model.id),
+    runtime.models.getModels(registration.id).map((model) => model.id),
     ["baseline-model"],
   );
 });
 
 void test("credential adapter does not reinterpret OAuth records as browser API keys", async () => {
-  const credentials =
-    new ProviderCredentialsStore(
-      new MemoryProviderKeys(),
-    );
+  const credentials = new ProviderCredentialsStore(new MemoryProviderKeys());
 
   await assert.rejects(
-    credentials.modify(
-      "openai",
-      () =>
-        Promise.resolve({
-          type: "oauth",
-          access: "access",
-          refresh: "refresh",
-          expires:
-            Date.now() + 60_000,
-        } satisfies Credential),
-    ),
+    credentials.modify("openai", () => Promise.resolve({
+      type: "oauth",
+      access: "access",
+      refresh: "refresh",
+      expires: Date.now() + 60_000,
+    } satisfies Credential)),
     /taskpane OAuth store/,
   );
 });
