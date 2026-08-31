@@ -105,49 +105,37 @@ void test("browser runtime exposes built-in models through IndexedDB-backed cred
   assert.equal(auth?.auth.apiKey, "test-key");
 });
 
-void test("custom gateway discovery merges remote model ids and persists the catalogue", async () => {
-  const catalogs = new MemoryCatalogs();
-  let requestedUrl = "";
-  let authorization = "";
-  const fetchFn: typeof globalThis.fetch = (input, init) => {
-    requestedUrl = typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.toString()
-        : input.url;
-    authorization = new Headers(init?.headers).get("authorization") ?? "";
-    return Promise.resolve(new Response(JSON.stringify({
-      data: [{ id: "remote-b" }, { id: "remote-a" }, { id: "remote-a" }],
-    }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-  };
+void test("custom gateway shows only the user-configured model — no remote discovery", async () => {
+  let networkCalled = false;
+  const runtime = createRuntime({
+    fetchFn: async () => {
+      networkCalled = true;
+      return new Response(JSON.stringify({ data: [{ id: "remote-a" }, { id: "remote-b" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  });
 
-  const runtime = createRuntime({ catalogs, fetchFn });
   await runtime.syncCustomProviders([gatewayProvider()]);
   assert.equal(runtime.shouldProxyProvider("Gateway · Acme"), true);
   const result = await runtime.refresh({ allowNetwork: true });
 
   assert.equal(result.errors.size, 0);
-  assert.equal(requestedUrl, "https://gateway.example.com/v1/models");
-  assert.equal(authorization, "Bearer gateway-secret");
+  assert.equal(networkCalled, false, "must not call /models — user already specified the model id");
   assert.deepEqual(
     runtime.models.getModels("Gateway · Acme").map((model) => model.id),
-    ["configured-model", "remote-a", "remote-b"],
-  );
-  assert.deepEqual(
-    catalogs.entries.get("Gateway · Acme")?.models.map((model) => model.id),
-    ["remote-a", "remote-b"],
+    ["configured-model"],
+    "only the model the user typed in settings should appear",
   );
 });
 
-void test("a fresh runtime restores discovered models without network access", async () => {
+void test("a fresh runtime shows the configured model without any network access", async () => {
   const catalogs = new MemoryCatalogs();
   let networkCalls = 0;
   const fetchFn: typeof globalThis.fetch = () => {
     networkCalls += 1;
-    return Promise.resolve(new Response(JSON.stringify({ data: [{ id: "cached-model" }] }), {
+    return Promise.resolve(new Response(JSON.stringify({ data: [{ id: "remote-model" }] }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     }));
@@ -156,40 +144,30 @@ void test("a fresh runtime restores discovered models without network access", a
   const first = createRuntime({ catalogs, fetchFn });
   await first.syncCustomProviders([gatewayProvider()]);
   await first.refresh({ allowNetwork: true });
-  assert.equal(networkCalls, 1);
+  assert.equal(networkCalls, 0, "no network calls expected for custom gateways");
 
   const second = createRuntime({ catalogs, fetchFn });
   await second.syncCustomProviders([gatewayProvider()]);
   await second.refresh({ allowNetwork: false });
 
-  assert.equal(networkCalls, 1, "cache-only startup must not call the gateway");
-  assert.ok(second.models.getModel("Gateway · Acme", "cached-model"));
+  assert.equal(networkCalls, 0, "still no network calls on second runtime");
+  assert.ok(
+    second.models.getModel("Gateway · Acme", "configured-model"),
+    "configured model must be available on fresh runtime",
+  );
 });
 
-void test("cached discovery is rebound to the current provider transport", async () => {
+void test("configured model follows updated gateway url and api type", async () => {
   const catalogs = new MemoryCatalogs();
-  const first = createRuntime({
-    catalogs,
-    fetchFn: () => Promise.resolve(new Response(JSON.stringify({
-      data: [{ id: "cached-model" }],
-    }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    })),
-  });
-  await first.syncCustomProviders([gatewayProvider()]);
-  await first.refresh({ allowNetwork: true });
 
-  const providerId = "Gateway · Acme";
-  const cached = catalogs.entries.get(providerId);
-  assert.ok(cached);
-  catalogs.entries.set(providerId, {
-    ...cached,
-    models: cached.models.map((model) => ({
-      ...model,
-      headers: { "x-stale-endpoint-header": "must-not-survive" },
-    })),
-  });
+  const first = createRuntime({ catalogs });
+  await first.syncCustomProviders([gatewayProvider()]);
+  await first.refresh({ allowNetwork: false });
+
+  assert.equal(
+    first.models.getModel("Gateway · Acme", "configured-model")?.baseUrl,
+    "https://gateway.example.com/v1",
+  );
 
   const updated = gatewayProvider();
   updated.type = "openai-responses";
@@ -201,49 +179,33 @@ void test("cached discovery is rebound to the current provider transport", async
     baseUrl: updated.baseUrl,
   }));
 
-  const second = createRuntime({
-    catalogs,
-    fetchFn: () => {
-      throw new Error("cache-only restore must not use the network");
-    },
-  });
+  const second = createRuntime({ catalogs });
   await second.syncCustomProviders([updated]);
   await second.refresh({ allowNetwork: false });
 
-  const restored = second.models.getModel(providerId, "cached-model");
+  const restored = second.models.getModel("Gateway · Acme", "configured-model");
   assert.equal(restored?.api, "openai-responses");
   assert.equal(restored?.baseUrl, "https://new-gateway.example.com/v2");
-  assert.equal(restored?.headers, undefined);
-  assert.equal((await second.models.getAuth(providerId))?.auth.apiKey, "new-gateway-secret");
+  assert.equal((await second.models.getAuth("Gateway · Acme"))?.auth.apiKey, "new-gateway-secret");
 });
 
-void test("failed remote discovery retains the last cached overlay and baseline", async () => {
-  const catalogs = new MemoryCatalogs();
-  let shouldFail = false;
-  const fetchFn: typeof globalThis.fetch = () => {
-    if (shouldFail) {
-      return Promise.resolve(new Response("unavailable", { status: 503 }));
-    }
-    return Promise.resolve(new Response(JSON.stringify({ data: [{ id: "last-known-model" }] }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-  };
+void test("configured model remains available even when the gateway is unreachable", async () => {
+  const fetchFn: typeof globalThis.fetch = () =>
+    Promise.resolve(new Response("unavailable", { status: 503 }));
 
-  const runtime = createRuntime({ catalogs, fetchFn });
+  const runtime = createRuntime({ fetchFn });
   await runtime.syncCustomProviders([gatewayProvider()]);
-  await runtime.refresh({ allowNetwork: true });
-  shouldFail = true;
+  const result = await runtime.refresh({ allowNetwork: true });
 
-  const failed = await runtime.refresh({ allowNetwork: true });
-  assert.equal(failed.errors.has("Gateway · Acme"), true);
+  // No discovery means no error raised from /models
+  assert.equal(result.errors.size, 0);
   assert.deepEqual(
     runtime.models.getModels("Gateway · Acme").map((model) => model.id),
-    ["configured-model", "last-known-model"],
+    ["configured-model"],
   );
 });
 
-void test("oversized or malformed discovery catalogues retain the last safe cache", async () => {
+void test("extension provider discovery guards against oversized or malformed responses", async () => {
   const catalogs = new MemoryCatalogs();
   let mode: "safe" | "too-many" | "long-id" | "too-large" = "safe";
   const fetchFn: typeof globalThis.fetch = () => {
@@ -273,16 +235,25 @@ void test("oversized or malformed discovery catalogues retain the last safe cach
   };
 
   const runtime = createRuntime({ catalogs, fetchFn });
-  await runtime.syncCustomProviders([gatewayProvider()]);
+  const registration: BrowserProviderRegistration = {
+    id: "ext.guard.provider",
+    name: "Guard provider",
+    api: "openai-completions",
+    baseUrl: "https://guard.example.com/v1",
+    models: [{ id: "baseline-model", contextWindow: 32_768, maxTokens: 4_096 }],
+    resolveApiKey: () => Promise.resolve("test-key"),
+  };
+
+  runtime.registerExtensionProvider("ext.guard", registration);
   await runtime.refresh({ allowNetwork: true });
 
   for (const unsafeMode of ["too-many", "long-id", "too-large"] as const) {
     mode = unsafeMode;
     const failed = await runtime.refresh({ allowNetwork: true });
-    assert.equal(failed.errors.has("Gateway · Acme"), true, unsafeMode);
+    assert.equal(failed.errors.has(registration.id), true, unsafeMode);
     assert.deepEqual(
-      runtime.models.getModels("Gateway · Acme").map((model) => model.id),
-      ["configured-model", "last-safe-model"],
+      runtime.models.getModels(registration.id).map((model) => model.id),
+      ["baseline-model", "last-safe-model"],
       unsafeMode,
     );
   }
@@ -383,35 +354,4 @@ void test("credential adapter does not reinterpret OAuth records as browser API 
     } satisfies Credential)),
     /taskpane OAuth store/,
   );
-});
-
-void test("custom gateway never calls /models — only the user-configured model id is shown", async () => {
-  let discoveryCallCount = 0;
-
-  const runtime = createRuntime({
-    fetchFn: async (url) => {
-      if (String(url).endsWith("/models")) {
-        discoveryCallCount++;
-      }
-      // Return a valid models payload even though it should never be called.
-      return new Response(
-        JSON.stringify({ data: [{ id: "remote-model-1" }, { id: "remote-model-2" }] }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    },
-  });
-
-  await runtime.syncCustomProviders([gatewayProvider()]);
-  await runtime.refresh({ allowNetwork: true });
-
-  assert.equal(
-    discoveryCallCount,
-    0,
-    "must not hit /models — user already specified the model id",
-  );
-
-  const providerId = "Gateway · Acme";
-  const visible = runtime.models.getModels(providerId);
-  assert.equal(visible.length, 1, "should expose exactly the one configured model");
-  assert.equal(visible[0]?.id, "configured-model", "model id must match what the user set");
 });
