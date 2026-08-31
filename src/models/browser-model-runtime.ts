@@ -60,7 +60,11 @@ export interface BrowserProviderRegistration {
   api: BrowserProviderApi;
   baseUrl: string;
   models: readonly BrowserProviderModelDefinition[];
-  /** Defaults to `${baseUrl}/models` for OpenAI-compatible providers. Pass null to disable discovery entirely. */
+  /**
+   * Defaults to `${baseUrl}/models` for OpenAI-compatible providers.
+   * Pass `null` to disable remote model discovery entirely and use only
+   * the statically-configured `models` list.
+   */
   modelsUrl?: string | null;
   resolveApiKey: () => Promise<string | undefined>;
   /** Keyless local providers can opt in while still satisfying Pi AI auth semantics. */
@@ -406,6 +410,8 @@ function createRegisteredProvider(
     baseUrl,
     definition,
   }));
+
+  // `undefined` means "not set — auto-derive"; `null` means "explicitly disabled".
   const modelsUrlRaw = registration.modelsUrl !== undefined
     ? registration.modelsUrl
     : deriveModelsUrl(baseUrl, registration.api);
@@ -499,7 +505,9 @@ function customProviderRegistrations(provider: CustomProvider): BrowserProviderR
     api: providerApi,
     baseUrl: provider.baseUrl,
     models,
-    modelsUrl: null, // user already specified the model id; do not discover additional models from the gateway
+    // The user already specified the exact model id in the gateway settings.
+    // Disable remote discovery so the list shows only what they configured.
+    modelsUrl: null,
     resolveApiKey: () => Promise.resolve(provider.apiKey),
     allowKeyless: !provider.apiKey,
   }));
