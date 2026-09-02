@@ -93,6 +93,7 @@
   "custom-gateway.gatewayModel": "Model: {id}",
   "custom-gateway.hint": "For corporate LLM gateways or local OpenAI-compatible servers.",
   "custom-gateway.modelPlaceholder": "model-id",
+  "custom-gateway.modelPlaceholderOptional": "model-id (optional: leave empty for auto-discovery)",
   "custom-gateway.namePlaceholder": "Gateway name (optional)",
   "custom-gateway.noGateways": "No custom gateways configured yet.",
   "custom-gateway.saveGateway": "Save gateway",

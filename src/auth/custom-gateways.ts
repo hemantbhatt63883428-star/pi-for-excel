@@ -25,17 +25,18 @@ export interface OpenAiGatewayConfig {
   id: string;
   displayName: string;
   endpointUrl: string;
-  modelId: string;
+  modelIds: string[];
   apiKey: string;
   providerName: string;
   contextWindow: number;
+  disableDiscovery?: boolean;
 }
 
 export interface SaveOpenAiGatewayInput {
   id?: string;
   displayName?: string;
   endpointUrl: string;
-  modelId: string;
+  modelId?: string;
   apiKey?: string;
   contextWindow?: number;
 }
@@ -83,7 +84,7 @@ export function normalizeGatewayEndpointUrl(endpointUrl: string): string {
 }
 
 export function normalizeGatewayModelId(modelId: string): string {
-  return normalizeRequiredString(modelId, "Model ID");
+  return modelId.trim();
 }
 
 export function normalizeGatewayContextWindow(contextWindow: number | null | undefined): number {
@@ -169,8 +170,9 @@ function providerToGatewayConfig(provider: CustomProvider): OpenAiGatewayConfig 
   }
 
   const endpointUrl = normalizeOptionalString(provider.baseUrl);
-  const modelId = normalizeOptionalString(model.id);
-  if (endpointUrl.length === 0 || modelId.length === 0) {
+  const storedModels = Array.isArray(provider.models) ? provider.models : [];
+  const modelIds = storedModels.map((m) => normalizeOptionalString(m.id)).filter((id) => id.length > 0);
+  if (endpointUrl.length === 0 || modelIds.length === 0) {
     return null;
   }
 
@@ -182,10 +184,11 @@ function providerToGatewayConfig(provider: CustomProvider): OpenAiGatewayConfig 
     id: provider.id,
     displayName: normalizeOptionalString(provider.name) || defaultDisplayName,
     endpointUrl,
-    modelId,
+    modelIds,
     apiKey: normalizeOptionalString(provider.apiKey),
     providerName,
     contextWindow: normalizeGatewayContextWindow(model.contextWindow),
+    disableDiscovery: provider.disableDiscovery,
   };
 }
 
@@ -204,7 +207,7 @@ function createGatewayModel(args: {
     provider: args.providerName,
     baseUrl: args.endpointUrl,
     reasoning: false,
-    input: ["text"],
+    input: args.modelId === "deepseek-v4-flash-vision-exp" ? ["text", "image"] : ["text"],
     cost: {
       input: 0,
       output: 0,
@@ -215,6 +218,15 @@ function createGatewayModel(args: {
     maxTokens,
   };
 }
+
+const HARDCODED_GATEWAY_MODELS: Record<string, string[]> = {
+  "https://api.b.ai/v1": [
+    "qwen3.8-flash",
+    "deepseek-v4-flash",
+    "mimo-v2.5",
+    "deepseek-v4-flash-vision-exp",
+  ],
+};
 
 function resolveUniqueProviderName(args: {
   displayName: string;
@@ -261,7 +273,7 @@ export async function saveOpenAiGatewayConfig(
   input: SaveOpenAiGatewayInput,
 ): Promise<OpenAiGatewayConfig> {
   const endpointUrl = normalizeGatewayEndpointUrl(input.endpointUrl);
-  const modelId = normalizeGatewayModelId(input.modelId);
+  const modelId = normalizeGatewayModelId(input.modelId ?? "");
   const contextWindow = normalizeGatewayContextWindow(input.contextWindow);
   const existingGateways = await listOpenAiGatewayConfigs(customProvidersStore);
 
@@ -289,19 +301,26 @@ export async function saveOpenAiGatewayConfig(
   const id = input.id ?? `${OPENAI_GATEWAY_ID_PREFIX}${crypto.randomUUID()}`;
   const apiKey = normalizeOptionalString(input.apiKey);
 
+  const hardcoded = HARDCODED_GATEWAY_MODELS[endpointUrl];
+  const modelIds = modelId.length > 0
+    ? [modelId]
+    : (hardcoded ?? []);
+  const disableDiscovery = modelId.length > 0 ? undefined : true;
+
   const provider: CustomProvider = {
     id,
     name: displayName,
     type: OPENAI_GATEWAY_TYPE,
     baseUrl: endpointUrl,
-    models: [
+    models: modelIds.map((mId) =>
       createGatewayModel({
         endpointUrl,
-        modelId,
+        modelId: mId,
         providerName,
         contextWindow,
-      }),
-    ],
+      })
+    ),
+    ...(disableDiscovery ? { disableDiscovery: true } : {}),
   };
   if (apiKey.length > 0) {
     provider.apiKey = apiKey;
@@ -313,10 +332,11 @@ export async function saveOpenAiGatewayConfig(
     id,
     displayName,
     endpointUrl,
-    modelId,
+    modelIds,
     apiKey,
     providerName,
     contextWindow,
+    disableDiscovery,
   };
 }
 

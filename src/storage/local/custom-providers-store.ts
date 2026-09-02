@@ -25,6 +25,7 @@ export interface CustomProvider {
   baseUrl: string;
   apiKey?: string;
   models?: Model<Api>[];
+  disableDiscovery?: boolean;
 }
 
 export class CustomProvidersStore extends Store {

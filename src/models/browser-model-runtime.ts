@@ -65,6 +65,8 @@ export interface BrowserProviderRegistration {
   resolveApiKey: () => Promise<string | undefined>;
   /** Keyless local providers can opt in while still satisfying Pi AI auth semantics. */
   allowKeyless?: boolean;
+  /** Skip model discovery (fetchModels) — use hardcoded models only. */
+  disableDiscovery?: boolean;
 }
 
 export interface CreateBrowserModelRuntimeOptions {
@@ -424,7 +426,7 @@ function createRegisteredProvider(
       }),
     },
     models: baselineModels,
-    ...(modelsUrl !== undefined
+    ...(modelsUrl !== undefined && !registration.disableDiscovery
       ? {
         fetchModels: async ({ credential, signal }) => {
           const requestUrl = await resolveDiscoveryRequestUrl(modelsUrl, getProxyUrl);
@@ -500,6 +502,7 @@ function customProviderRegistrations(provider: CustomProvider): BrowserProviderR
     models,
     resolveApiKey: () => Promise.resolve(provider.apiKey),
     allowKeyless: !provider.apiKey,
+    disableDiscovery: provider.disableDiscovery,
   }));
 }
 

@@ -186,6 +186,7 @@ const DEFAULT_ALLOWED_TARGET_HOSTS = new Set([
   "cloudcode-pa.googleapis.com",
   "daily-cloudcode-pa.sandbox.googleapis.com",
   "api.z.ai",
+  "api.b.ai",
   // Web search providers
   "s.jina.ai",
   "api.firecrawl.dev",

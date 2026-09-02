@@ -92,7 +92,7 @@ function createGatewayCard(args: {
 
   const model = document.createElement("p");
   model.className = "pi-settings-gateway-item__meta";
-  model.textContent = t("custom-gateway.gatewayModel", { id: args.gateway.modelId });
+  model.textContent = t("custom-gateway.gatewayModel", { id: args.gateway.modelIds.join(", ") });
 
   const contextWindow = document.createElement("p");
   contextWindow.className = "pi-settings-gateway-item__meta";
@@ -132,7 +132,7 @@ export async function buildCustomGatewaySection(
   endpointInput.spellcheck = false;
 
   const modelInput = createConfigInput({
-    placeholder: t("custom-gateway.modelPlaceholder"),
+    placeholder: t("custom-gateway.modelPlaceholderOptional"),
   });
 
   const contextWindowInput = createConfigInput({
@@ -217,7 +217,7 @@ export async function buildCustomGatewaySection(
     editingGatewayId = gateway.id;
     nameInput.value = gateway.displayName;
     endpointInput.value = gateway.endpointUrl;
-    modelInput.value = gateway.modelId;
+    modelInput.value = gateway.modelIds.join(", ");
     contextWindowInput.value = String(gateway.contextWindow);
     apiKeyInput.value = gateway.apiKey;
     cancelButton.hidden = false;
@@ -292,11 +292,12 @@ export async function buildCustomGatewaySection(
           ? Number(rawContextWindow)
           : undefined;
 
+        const modelIdValue = modelInput.value.trim();
         const saved = await saveOpenAiGatewayConfig(getAppStorage().customProviders, {
           ...(editingGatewayId ? { id: editingGatewayId } : {}),
           displayName: nameInput.value,
           endpointUrl: endpointInput.value,
-          modelId: modelInput.value,
+          modelId: modelIdValue,
           apiKey: apiKeyInput.value,
           ...(contextWindow !== undefined ? { contextWindow } : {}),
         });

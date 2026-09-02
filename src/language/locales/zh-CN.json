@@ -93,6 +93,7 @@
   "custom-gateway.gatewayModel": "模型：{id}",
   "custom-gateway.hint": "用于公司 LLM 网关或本地 OpenAI 兼容服务器。",
   "custom-gateway.modelPlaceholder": "model-id（模型 ID）",
+  "custom-gateway.modelPlaceholderOptional": "model-id（模型 ID，可选：留空自动发现）",
   "custom-gateway.namePlaceholder": "网关名称（可选）",
   "custom-gateway.noGateways": "尚未配置自定义网关。",
   "custom-gateway.saveGateway": "保存网关",
