@@ -1,334 +1,559 @@
 /**
- * Settings section for custom OpenAI-compatible gateways.
+ * Custom OpenAI-compatible gateway settings.
  */
 
-import { getAppStorage } from "../../storage/local/app-storage.js";
-
+import type { CommandContext } from "../types.js";
 import {
-  DEFAULT_OPENAI_GATEWAY_CONTEXT_WINDOW,
   deleteOpenAiGatewayConfig,
   listOpenAiGatewayConfigs,
   saveOpenAiGatewayConfig,
   type OpenAiGatewayConfig,
 } from "../../auth/custom-gateways.js";
-import { requestConfirmationDialog } from "../../ui/confirm-dialog.js";
-import {
-  createButton,
-  createConfigInput,
-  createConfigRow,
-} from "../../ui/extensions-hub-components.js";
-import { createOverlaySectionTitle } from "../../ui/overlay-dialog.js";
-import { showToast } from "../../ui/toast.js";
+import { getCustomProvidersStore } from "../../storage/local/custom-providers-store.js";
 import { t } from "../../language/index.js";
 
-interface BuildCustomGatewaySectionOptions {
-  onProvidersChanged: () => void;
-  /**
-   * Include the section's own title + hint. Defaults to true; the settings
-   * gateway page supplies its own page header instead.
-   */
-  includeHeading?: boolean;
+const BAI_ENDPOINT = "https://api.b.ai/v1";
+const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1";
+
+function createInput(
+  value = "",
+): HTMLInputElement {
+  const input =
+    document.createElement("input");
+
+  input.value = value;
+  input.className =
+    "pi-custom-gateway-input";
+
+  return input;
 }
 
-function createHint(text: string): HTMLParagraphElement {
-  const hint = document.createElement("p");
-  hint.className = "pi-overlay-hint";
-  hint.textContent = text;
-  return hint;
+function createLabel(
+  text: string,
+): HTMLLabelElement {
+  const label =
+    document.createElement("label");
+
+  label.textContent = text;
+  label.className =
+    "pi-custom-gateway-label";
+
+  return label;
 }
 
-function formatTokenCount(value: number): string {
-  return `${value.toLocaleString()} tokens`;
+function createButton(
+  text: string,
+): HTMLButtonElement {
+  const button =
+    document.createElement("button");
+
+  button.type = "button";
+  button.textContent = text;
+  button.className =
+    "pi-custom-gateway-button";
+
+  return button;
 }
 
-function createGatewayCard(args: {
-  gateway: OpenAiGatewayConfig;
-  onEdit: (gateway: OpenAiGatewayConfig) => void;
-  onDelete: (gateway: OpenAiGatewayConfig) => void;
-}): HTMLElement {
-  const card = document.createElement("div");
-  card.className = "pi-overlay-surface pi-settings-gateway-item";
+function createField(
+  labelText: string,
+  input: HTMLInputElement,
+): HTMLDivElement {
+  const wrapper =
+    document.createElement("div");
 
-  const topRow = document.createElement("div");
-  topRow.className = "pi-settings-gateway-item__top";
+  wrapper.className =
+    "pi-custom-gateway-field";
 
-  const titleGroup = document.createElement("div");
-  titleGroup.className = "pi-settings-gateway-item__title-group";
+  wrapper.append(
+    createLabel(labelText),
+    input,
+  );
 
-  const title = document.createElement("p");
-  title.className = "pi-settings-gateway-item__title";
-  title.textContent = args.gateway.displayName;
+  return wrapper;
+}
 
-  const provider = document.createElement("p");
-  provider.className = "pi-settings-gateway-item__provider";
-  provider.textContent = args.gateway.providerName;
+function createGatewayCard(
+  gateway: OpenAiGatewayConfig,
+  onChanged: () => void,
+): HTMLElement {
+  const card =
+    document.createElement("div");
 
-  titleGroup.append(title, provider);
+  card.className =
+    "pi-custom-gateway-card";
 
-  const actions = document.createElement("div");
-  actions.className = "pi-settings-gateway-item__actions";
+  const title =
+    document.createElement("div");
 
-  const editButton = createButton(t("custom-gateway.editButton"), {
-    compact: true,
-    onClick: () => {
-      args.onEdit(args.gateway);
+  title.className =
+    "pi-custom-gateway-card-title";
+
+  title.textContent =
+    gateway.displayName;
+
+  const endpoint =
+    document.createElement("div");
+
+  endpoint.className =
+    "pi-custom-gateway-card-endpoint";
+
+  endpoint.textContent =
+    gateway.endpointUrl;
+
+  const models =
+    document.createElement("div");
+
+  models.className =
+    "pi-custom-gateway-card-models";
+
+  models.textContent =
+    gateway.modelIds.join(", ");
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "pi-custom-gateway-card-actions";
+
+  const editButton =
+    createButton(
+      t("custom-gateway.edit"),
+    );
+
+  const deleteButton =
+    createButton(
+      t("custom-gateway.delete"),
+    );
+
+  editButton.addEventListener(
+    "click",
+    () => {
+      window.dispatchEvent(
+        new CustomEvent(
+          "pi:edit-custom-gateway",
+          {
+            detail: gateway,
+          },
+        ),
+      );
     },
-  });
+  );
 
-  const deleteButton = createButton(t("custom-gateway.deleteButton"), {
-    compact: true,
-    danger: true,
-    onClick: () => {
-      args.onDelete(args.gateway);
+  deleteButton.addEventListener(
+    "click",
+    async () => {
+      const confirmed =
+        window.confirm(
+          t(
+            "custom-gateway.confirmDelete",
+          ),
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        const store =
+          await getCustomProvidersStore();
+
+        await deleteOpenAiGatewayConfig(
+          store,
+          gateway.id,
+        );
+
+        onChanged();
+      } catch (error) {
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : String(error),
+        );
+      }
     },
-  });
+  );
 
-  actions.append(editButton, deleteButton);
-  topRow.append(titleGroup, actions);
+  actions.append(
+    editButton,
+    deleteButton,
+  );
 
-  const endpoint = document.createElement("p");
-  endpoint.className = "pi-settings-gateway-item__meta";
-  endpoint.textContent = t("custom-gateway.gatewayEndpoint", { url: args.gateway.endpointUrl });
+  card.append(
+    title,
+    endpoint,
+    models,
+    actions,
+  );
 
-  const model = document.createElement("p");
-  model.className = "pi-settings-gateway-item__meta";
-  model.textContent = t("custom-gateway.gatewayModel", { id: args.gateway.modelIds.join(", ") });
-
-  const contextWindow = document.createElement("p");
-  contextWindow.className = "pi-settings-gateway-item__meta";
-  contextWindow.textContent = t("custom-gateway.gatewayContextWindow", { tokens: formatTokenCount(args.gateway.contextWindow) });
-
-  const keyState = document.createElement("p");
-  keyState.className = "pi-settings-gateway-item__meta";
-  keyState.textContent = args.gateway.apiKey.length > 0 ? t("custom-gateway.gatewayApiKeyConfigured") : t("custom-gateway.gatewayApiKeyNone");
-
-  card.append(topRow, endpoint, model, contextWindow, keyState);
   return card;
 }
 
-export async function buildCustomGatewaySection(
-  options: BuildCustomGatewaySectionOptions,
-): Promise<HTMLElement> {
-  const section = document.createElement("section");
-  section.className = "pi-overlay-section pi-settings-section";
-  section.dataset.settingsAnchor = "custom-gateways";
+export async function renderCustomGatewaySettings(
+  container: HTMLElement,
+  context: CommandContext,
+): Promise<void> {
+  container.innerHTML = "";
 
-  const title = createOverlaySectionTitle(t("custom-gateway.title"));
-  const hint = createHint(t("custom-gateway.hint"));
+  const root =
+    document.createElement("div");
 
-  const content = document.createElement("div");
-  content.className = "pi-settings-section__content";
+  root.className =
+    "pi-custom-gateway-settings";
 
-  const formCard = document.createElement("div");
-  formCard.className = "pi-overlay-surface pi-settings-gateway-form";
+  const heading =
+    document.createElement("h2");
 
-  const nameInput = createConfigInput({
-    placeholder: t("custom-gateway.namePlaceholder"),
-  });
+  heading.textContent =
+    t("custom-gateway.title");
 
-  const endpointInput = createConfigInput({
-    placeholder: t("custom-gateway.endpointPlaceholder"),
-  });
-  endpointInput.spellcheck = false;
+  const description =
+    document.createElement("p");
 
-  const modelInput = createConfigInput({
-    placeholder: t("custom-gateway.modelPlaceholderOptional"),
-  });
+  description.textContent =
+    t("custom-gateway.description");
 
-  const contextWindowInput = createConfigInput({
-    placeholder: String(DEFAULT_OPENAI_GATEWAY_CONTEXT_WINDOW),
-    type: "number",
-  });
-  contextWindowInput.min = "1024";
-  contextWindowInput.step = "1";
-  contextWindowInput.inputMode = "numeric";
+  const form =
+    document.createElement("div");
 
-  const apiKeyInput = createConfigInput({
-    placeholder: t("custom-gateway.apiKeyPlaceholder"),
-    type: "password",
-  });
+  form.className =
+    "pi-custom-gateway-form";
 
-  const errorText = document.createElement("p");
-  errorText.className = "pi-overlay-hint pi-overlay-text-warning";
-  errorText.hidden = true;
+  const nameInput =
+    createInput();
 
-  const formActions = document.createElement("div");
-  formActions.className = "pi-overlay-actions";
+  const endpointInput =
+    createInput();
 
-  const cancelButton = createButton(t("custom-gateway.cancelButton"), {
-    compact: true,
-  });
-  cancelButton.hidden = true;
+  const modelInput =
+    createInput();
 
-  const saveButton = createButton(t("custom-gateway.saveGateway"), {
-    compact: true,
-    primary: true,
-  });
+  const contextWindowInput =
+    createInput(
+      "16384",
+    );
 
-  formActions.append(cancelButton, saveButton);
+  const apiKeyInput =
+    createInput();
 
-  formCard.append(
-    createConfigRow(t("custom-gateway.configLabelName"), nameInput),
-    createConfigRow(t("custom-gateway.configLabelEndpoint"), endpointInput),
-    createConfigRow(t("custom-gateway.configLabelModel"), modelInput),
-    createConfigRow(t("custom-gateway.configLabelContextWindow"), contextWindowInput),
-    createHint(
-      t("custom-gateway.contextWindowHint"),
-    ),
-    createConfigRow(t("custom-gateway.configLabelApiKey"), apiKeyInput),
-    errorText,
-    formActions,
+  apiKeyInput.type =
+    "password";
+
+  endpointInput.placeholder =
+    "https://api.example.com/v1";
+
+  modelInput.placeholder =
+    t(
+      "custom-gateway.modelPlaceholder",
+    );
+
+  const presetRow =
+    document.createElement("div");
+
+  presetRow.className =
+    "pi-custom-gateway-presets";
+
+  const baiButton =
+    createButton(
+      t(
+        "custom-gateway.presetBai",
+      ),
+    );
+
+  const openRouterButton =
+    createButton(
+      t(
+        "custom-gateway.presetOpenRouter",
+      ),
+    );
+
+  /**
+   * B.AI preset.
+   *
+   * Fills endpoint and leaves model
+   * blank so the gateway save logic
+   * inserts the four supported models.
+   */
+  baiButton.addEventListener(
+    "click",
+    () => {
+      endpointInput.value =
+        BAI_ENDPOINT;
+
+      modelInput.value = "";
+
+      apiKeyInput.focus();
+    },
   );
 
-  const listTitle = document.createElement("p");
-  listTitle.className = "pi-settings-gateway-list__title";
-  listTitle.textContent = t("custom-gateway-settings.configured-gateways");
+  /**
+   * OpenRouter preset.
+   *
+   * Blank model enables the OpenRouter
+   * seed model + /models discovery.
+   */
+  openRouterButton.addEventListener(
+    "click",
+    () => {
+      endpointInput.value =
+        OPENROUTER_ENDPOINT;
 
-  const listHost = document.createElement("div");
-  listHost.className = "pi-settings-gateway-list";
+      modelInput.value = "";
 
-  let editingGatewayId: string | null = null;
-  let gateways: OpenAiGatewayConfig[] = [];
+      apiKeyInput.focus();
+    },
+  );
 
-  const setError = (message: string | null): void => {
-    if (!message) {
-      errorText.hidden = true;
-      errorText.textContent = "";
-      return;
-    }
+  presetRow.append(
+    baiButton,
+    openRouterButton,
+  );
 
-    errorText.hidden = false;
-    errorText.textContent = message;
-  };
+  form.append(
+    createField(
+      t("custom-gateway.name"),
+      nameInput,
+    ),
 
-  const resetForm = (): void => {
-    editingGatewayId = null;
-    nameInput.value = "";
-    endpointInput.value = "";
-    modelInput.value = "";
-    contextWindowInput.value = "";
-    apiKeyInput.value = "";
-    cancelButton.hidden = true;
-    saveButton.textContent = t("custom-gateway.saveGateway");
-    setError(null);
-  };
+    createField(
+      t("custom-gateway.endpoint"),
+      endpointInput,
+    ),
 
-  const startEditing = (gateway: OpenAiGatewayConfig): void => {
-    editingGatewayId = gateway.id;
-    nameInput.value = gateway.displayName;
-    endpointInput.value = gateway.endpointUrl;
-    modelInput.value = gateway.modelIds.join(", ");
-    contextWindowInput.value = String(gateway.contextWindow);
-    apiKeyInput.value = gateway.apiKey;
-    cancelButton.hidden = false;
-    saveButton.textContent = t("custom-gateway-settings.update-gateway");
-    setError(null);
-    nameInput.focus();
-  };
+    createField(
+      t("custom-gateway.model"),
+      modelInput,
+    ),
 
-  const reloadGateways = async (): Promise<void> => {
-    gateways = await listOpenAiGatewayConfigs(getAppStorage().customProviders);
-  };
+    createField(
+      t(
+        "custom-gateway.contextWindow",
+      ),
+      contextWindowInput,
+    ),
 
-  const renderList = (): void => {
-    listHost.replaceChildren();
+    createField(
+      t("custom-gateway.apiKey"),
+      apiKeyInput,
+    ),
+  );
 
-    if (gateways.length === 0) {
-      listHost.appendChild(createHint(t("custom-gateway.noGateways")));
-      return;
-    }
+  const saveButton =
+    createButton(
+      t("custom-gateway.save"),
+    );
 
-    for (const gateway of gateways) {
-      listHost.appendChild(createGatewayCard({
-        gateway,
-        onEdit: startEditing,
-        onDelete: (targetGateway) => {
-          void (async () => {
-            try {
-              const confirmed = await requestConfirmationDialog({
-                title: t("custom-gateway.deleteConfirmTitle"),
-                message: t("custom-gateway.deleteConfirmMsg", { name: targetGateway.displayName }),
-                confirmLabel: t("custom-gateway.deleteButton"),
-                confirmButtonTone: "danger",
-                restoreFocusOnClose: false,
-              });
+  const cancelButton =
+    createButton(
+      t("custom-gateway.cancel"),
+    );
 
-              if (!confirmed) {
-                return;
-              }
+  const buttonRow =
+    document.createElement("div");
 
-              await deleteOpenAiGatewayConfig(getAppStorage().customProviders, targetGateway.id);
-              await reloadGateways();
-              renderList();
-              options.onProvidersChanged();
-              showToast(t("custom-gateway.deletedGateway", { name: targetGateway.displayName }));
+  buttonRow.className =
+    "pi-custom-gateway-actions";
 
-              if (editingGatewayId === targetGateway.id) {
-                resetForm();
-              }
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              showToast(t("custom-gateway.toast.deleteFailed", { message }));
-            }
-          })();
-        },
-      }));
-    }
-  };
+  buttonRow.append(
+    saveButton,
+    cancelButton,
+  );
 
-  cancelButton.addEventListener("click", () => {
-    resetForm();
-  });
+  const list =
+    document.createElement("div");
 
-  saveButton.addEventListener("click", () => {
-    void (async () => {
-      setError(null);
-      saveButton.disabled = true;
-      cancelButton.disabled = true;
+  list.className =
+    "pi-custom-gateway-list";
 
-      try {
-        const rawContextWindow = contextWindowInput.value.trim();
-        const contextWindow = rawContextWindow.length > 0
-          ? Number(rawContextWindow)
-          : undefined;
+  const refreshList =
+    async (): Promise<void> => {
+      list.innerHTML = "";
 
-        const modelIdValue = modelInput.value.trim();
-        const saved = await saveOpenAiGatewayConfig(getAppStorage().customProviders, {
-          ...(editingGatewayId ? { id: editingGatewayId } : {}),
-          displayName: nameInput.value,
-          endpointUrl: endpointInput.value,
-          modelId: modelIdValue,
-          apiKey: apiKeyInput.value,
-          ...(contextWindow !== undefined ? { contextWindow } : {}),
-        });
+      const store =
+        await getCustomProvidersStore();
 
-        await reloadGateways();
-        renderList();
-        options.onProvidersChanged();
-        showToast(
-          editingGatewayId
-            ? t("custom-gateway.updatedGateway", { name: saved.displayName })
-            : t("custom-gateway.savedGateway", { name: saved.displayName }),
+      const gateways =
+        await listOpenAiGatewayConfigs(
+          store,
         );
 
-        resetForm();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setError(message);
-      } finally {
-        saveButton.disabled = false;
-        cancelButton.disabled = false;
+      if (gateways.length === 0) {
+        const empty =
+          document.createElement("p");
+
+        empty.textContent =
+          t(
+            "custom-gateway.empty",
+          );
+
+        list.append(empty);
+
+        return;
       }
-    })();
-  });
 
-  await reloadGateways();
-  renderList();
+      for (const gateway of gateways) {
+        list.append(
+          createGatewayCard(
+            gateway,
+            refreshList,
+          ),
+        );
+      }
+    };
 
-  content.append(formCard, listTitle, listHost);
-  if (options.includeHeading !== false) {
-    section.append(title, hint);
-  }
-  section.append(content);
-  return section;
+  let editingId:
+    string | undefined;
+
+  const loadGatewayForEdit =
+    (
+      gateway: OpenAiGatewayConfig,
+    ): void => {
+      editingId =
+        gateway.id;
+
+      nameInput.value =
+        gateway.displayName;
+
+      endpointInput.value =
+        gateway.endpointUrl;
+
+      modelInput.value =
+        gateway.modelIds.join("\n");
+
+      contextWindowInput.value =
+        String(
+          gateway.contextWindow,
+        );
+
+      apiKeyInput.value =
+        gateway.apiKey;
+
+      saveButton.textContent =
+        t(
+          "custom-gateway.update",
+        );
+
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+    };
+
+  const handleEdit =
+    (
+      event: Event,
+    ): void => {
+      const customEvent =
+        event as CustomEvent<OpenAiGatewayConfig>;
+
+      if (!customEvent.detail) {
+        return;
+      }
+
+      loadGatewayForEdit(
+        customEvent.detail,
+      );
+    };
+
+  window.addEventListener(
+    "pi:edit-custom-gateway",
+    handleEdit,
+  );
+
+  saveButton.addEventListener(
+    "click",
+    async () => {
+      saveButton.disabled =
+        true;
+
+      try {
+        const store =
+          await getCustomProvidersStore();
+
+        const contextWindow =
+          Number(
+            contextWindowInput.value.trim(),
+          );
+
+        const saved =
+          await saveOpenAiGatewayConfig(
+            store,
+            {
+              id: editingId,
+              displayName:
+                nameInput.value,
+              endpointUrl:
+                endpointInput.value,
+              modelId:
+                modelInput.value,
+              apiKey:
+                apiKeyInput.value,
+              contextWindow,
+            },
+          );
+
+        editingId =
+          saved.id;
+
+        saveButton.textContent =
+          t(
+            "custom-gateway.update",
+          );
+
+        await refreshList();
+
+        if (
+          context &&
+          typeof context.notify ===
+            "function"
+        ) {
+          context.notify(
+            t(
+              "custom-gateway.saved",
+            ),
+          );
+        }
+      } catch (error) {
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : String(error),
+        );
+      } finally {
+        saveButton.disabled =
+          false;
+      }
+    },
+  );
+
+  cancelButton.addEventListener(
+    "click",
+    () => {
+      editingId =
+        undefined;
+
+      nameInput.value = "";
+      endpointInput.value = "";
+      modelInput.value = "";
+      contextWindowInput.value =
+        "16384";
+      apiKeyInput.value = "";
+
+      saveButton.textContent =
+        t("custom-gateway.save");
+    },
+  );
+
+  root.append(
+    heading,
+    description,
+    presetRow,
+    form,
+    buttonRow,
+    list,
+  );
+
+  container.append(root);
+
+  await refreshList();
 }
