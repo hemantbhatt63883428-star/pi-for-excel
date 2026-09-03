@@ -57,6 +57,7 @@ function normalizeOptionalString(value: string | null | undefined): string {
 
 function normalizeRequiredString(value: string, label: string): string {
   const trimmed = value.trim();
+
   if (trimmed.length === 0) {
     throw new Error(`${label} is required.`);
   }
@@ -68,51 +69,76 @@ export function normalizeGatewayEndpointUrl(endpointUrl: string): string {
   const raw = normalizeRequiredString(endpointUrl, "Endpoint URL");
 
   let parsed: URL;
+
   try {
     parsed = new URL(raw);
   } catch {
-    throw new Error("Endpoint URL must be a valid http:// or https:// URL.");
+    throw new Error(
+      "Endpoint URL must be a valid http:// or https:// URL.",
+    );
   }
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Endpoint URL must use http:// or https://.");
+    throw new Error(
+      "Endpoint URL must use http:// or https://.",
+    );
   }
 
   parsed.hash = "";
+
   const normalized = parsed.toString();
-  return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
+
+  return normalized.endsWith("/")
+    ? normalized.slice(0, -1)
+    : normalized;
 }
 
 export function normalizeGatewayModelId(modelId: string): string {
   return modelId.trim();
 }
 
-export function normalizeGatewayContextWindow(contextWindow: number | null | undefined): number {
+export function normalizeGatewayContextWindow(
+  contextWindow: number | null | undefined,
+): number {
   if (contextWindow == null) {
     return DEFAULT_OPENAI_GATEWAY_CONTEXT_WINDOW;
   }
 
   if (!Number.isInteger(contextWindow)) {
-    throw new Error("Max context tokens must be a whole number.");
+    throw new Error(
+      "Max context tokens must be a whole number.",
+    );
   }
 
   const normalized = contextWindow;
+
   if (normalized < 1_024) {
-    throw new Error("Max context tokens must be at least 1024.");
+    throw new Error(
+      "Max context tokens must be at least 1024.",
+    );
   }
 
   return normalized;
 }
 
-function deriveDisplayName(rawName: string | undefined, endpointUrl: string): string {
+function deriveDisplayName(
+  rawName: string | undefined,
+  endpointUrl: string,
+): string {
   const explicit = normalizeOptionalString(rawName);
+
   if (explicit.length > 0) {
     return explicit;
   }
 
   try {
     const url = new URL(endpointUrl);
-    const host = url.port.length > 0 ? `${url.hostname}:${url.port}` : url.hostname;
+
+    const host =
+      url.port.length > 0
+        ? `${url.hostname}:${url.port}`
+        : url.hostname;
+
     if (host.trim().length > 0) {
       return host;
     }
@@ -123,19 +149,28 @@ function deriveDisplayName(rawName: string | undefined, endpointUrl: string): st
   return "Custom gateway";
 }
 
-function toGatewayProviderName(displayName: string): string {
+function toGatewayProviderName(
+  displayName: string,
+): string {
   return `${OPENAI_GATEWAY_PROVIDER_PREFIX}${displayName}`;
 }
 
-function getFirstModel(provider: CustomProvider): StoredModel | null {
-  if (!Array.isArray(provider.models) || provider.models.length === 0) {
+function getFirstModel(
+  provider: CustomProvider,
+): StoredModel | null {
+  if (
+    !Array.isArray(provider.models) ||
+    provider.models.length === 0
+  ) {
     return null;
   }
 
   return provider.models[0] ?? null;
 }
 
-export function isOpenAiGatewayProvider(provider: CustomProvider): boolean {
+export function isOpenAiGatewayProvider(
+  provider: CustomProvider,
+): boolean {
   if (!provider.id.startsWith(OPENAI_GATEWAY_ID_PREFIX)) {
     return false;
   }
@@ -145,50 +180,91 @@ export function isOpenAiGatewayProvider(provider: CustomProvider): boolean {
   }
 
   const model = getFirstModel(provider);
+
   if (!model) {
     return false;
   }
 
-  const providerName = normalizeOptionalString(model.provider);
-  const modelId = normalizeOptionalString(model.id);
-  return providerName.length > 0 && modelId.length > 0;
+  const providerName =
+    normalizeOptionalString(model.provider);
+
+  const modelId =
+    normalizeOptionalString(model.id);
+
+  return (
+    providerName.length > 0 &&
+    modelId.length > 0
+  );
 }
 
-function providerToGatewayConfig(provider: CustomProvider): OpenAiGatewayConfig | null {
+function providerToGatewayConfig(
+  provider: CustomProvider,
+): OpenAiGatewayConfig | null {
   if (!isOpenAiGatewayProvider(provider)) {
     return null;
   }
 
   const model = getFirstModel(provider);
+
   if (!model) {
     return null;
   }
 
-  const providerName = normalizeOptionalString(model.provider);
+  const providerName =
+    normalizeOptionalString(model.provider);
+
   if (providerName.length === 0) {
     return null;
   }
 
-  const endpointUrl = normalizeOptionalString(provider.baseUrl);
-  const storedModels = Array.isArray(provider.models) ? provider.models : [];
-  const modelIds = storedModels.map((m) => normalizeOptionalString(m.id)).filter((id) => id.length > 0);
-  if (endpointUrl.length === 0 || modelIds.length === 0) {
+  const endpointUrl =
+    normalizeOptionalString(provider.baseUrl);
+
+  const storedModels =
+    Array.isArray(provider.models)
+      ? provider.models
+      : [];
+
+  const modelIds = storedModels
+    .map((m) =>
+      normalizeOptionalString(m.id),
+    )
+    .filter(
+      (id) => id.length > 0,
+    );
+
+  if (
+    endpointUrl.length === 0 ||
+    modelIds.length === 0
+  ) {
     return null;
   }
 
-  const defaultDisplayName = providerName.startsWith(OPENAI_GATEWAY_PROVIDER_PREFIX)
-    ? providerName.slice(OPENAI_GATEWAY_PROVIDER_PREFIX.length)
-    : providerName;
+  const defaultDisplayName =
+    providerName.startsWith(
+      OPENAI_GATEWAY_PROVIDER_PREFIX,
+    )
+      ? providerName.slice(
+          OPENAI_GATEWAY_PROVIDER_PREFIX.length,
+        )
+      : providerName;
 
   return {
     id: provider.id,
-    displayName: normalizeOptionalString(provider.name) || defaultDisplayName,
+    displayName:
+      normalizeOptionalString(provider.name) ||
+      defaultDisplayName,
     endpointUrl,
     modelIds,
-    apiKey: normalizeOptionalString(provider.apiKey),
+    apiKey:
+      normalizeOptionalString(provider.apiKey),
     providerName,
-    contextWindow: normalizeGatewayContextWindow(model.contextWindow),
-    disableDiscovery: provider.disableDiscovery,
+    contextWindow:
+      normalizeGatewayContextWindow(
+        model.contextWindow,
+      ),
+    disableDiscovery:
+      provider.disableDiscovery,
   };
 }
 
@@ -198,7 +274,10 @@ function createGatewayModel(args: {
   providerName: string;
   contextWindow: number;
 }): Model<"openai-completions"> {
-  const maxTokens = Math.min(DEFAULT_OPENAI_GATEWAY_MAX_TOKENS, args.contextWindow);
+  const maxTokens = Math.min(
+    DEFAULT_OPENAI_GATEWAY_MAX_TOKENS,
+    args.contextWindow,
+  );
 
   return {
     id: args.modelId,
@@ -207,47 +286,122 @@ function createGatewayModel(args: {
     provider: args.providerName,
     baseUrl: args.endpointUrl,
     reasoning: false,
-    input: args.modelId === "deepseek-v4-flash-vision-exp" ? ["text", "image"] : ["text"],
+
+    input:
+      args.modelId ===
+      "deepseek-v4-flash-vision-exp"
+        ? ["text", "image"]
+        : ["text"],
+
     cost: {
       input: 0,
       output: 0,
       cacheRead: 0,
       cacheWrite: 0,
     },
-    contextWindow: args.contextWindow,
+
+    contextWindow:
+      args.contextWindow,
+
     maxTokens,
   };
 }
 
-const HARDCODED_GATEWAY_MODELS: Record<string, string[]> = {
+/**
+ * Known gateway models.
+ *
+ * B.AI:
+ * https://api.b.ai/v1
+ *
+ * OpenRouter:
+ * https://openrouter.ai/api/v1
+ */
+const HARDCODED_GATEWAY_MODELS: Record<
+  string,
+  string[]
+> = {
   "https://api.b.ai/v1": [
     "qwen3.8-flash",
     "deepseek-v4-flash",
     "mimo-v2.5",
     "deepseek-v4-flash-vision-exp",
   ],
+
+  /**
+   * OpenRouter is OpenAI-compatible.
+   *
+   * Keep a valid route as a seed model so the
+   * provider is persisted immediately.
+   *
+   * Dynamic /models discovery then refreshes
+   * the actual OpenRouter catalogue when loaded.
+   */
+  "https://openrouter.ai/api/v1": [
+    "openrouter/auto",
+  ],
 };
+
+function parseGatewayModelIds(
+  raw: string | undefined,
+): string[] {
+  if (!raw) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      raw
+        .split(/[\n,]+/u)
+        .map((value) => value.trim())
+        .filter(
+          (value) =>
+            value.length > 0,
+        ),
+    ),
+  );
+}
 
 function resolveUniqueProviderName(args: {
   displayName: string;
   existingGateways: OpenAiGatewayConfig[];
   editingId?: string;
 }): string {
-  const candidateBase = toGatewayProviderName(args.displayName);
+  const candidateBase =
+    toGatewayProviderName(
+      args.displayName,
+    );
+
   const usedNames = new Set(
     args.existingGateways
-      .filter((gateway) => gateway.id !== args.editingId)
-      .map((gateway) => gateway.providerName.toLowerCase()),
+      .filter(
+        (gateway) =>
+          gateway.id !== args.editingId,
+      )
+      .map(
+        (gateway) =>
+          gateway.providerName.toLowerCase(),
+      ),
   );
 
-  if (!usedNames.has(candidateBase.toLowerCase())) {
+  if (
+    !usedNames.has(
+      candidateBase.toLowerCase(),
+    )
+  ) {
     return candidateBase;
   }
 
   let suffix = 2;
+
   while (suffix < 500) {
-    const candidate = `${candidateBase} (${suffix})`;
-    if (!usedNames.has(candidate.toLowerCase())) {
+    const candidate =
+      `${candidateBase} (${suffix})`;
+
+    if (
+      !usedNames.has(
+        candidate.toLowerCase(),
+      )
+    ) {
       return candidate;
     }
 
@@ -258,33 +412,77 @@ function resolveUniqueProviderName(args: {
 }
 
 export async function listOpenAiGatewayConfigs(
-  customProvidersStore: CustomProvidersStoreLike,
+  customProvidersStore:
+    CustomProvidersStoreLike,
 ): Promise<OpenAiGatewayConfig[]> {
-  const providers = await customProvidersStore.getAll();
+  const providers =
+    await customProvidersStore.getAll();
 
   return providers
-    .map((provider) => providerToGatewayConfig(provider))
-    .filter((gateway): gateway is OpenAiGatewayConfig => gateway !== null)
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+    .map((provider) =>
+      providerToGatewayConfig(
+        provider,
+      ),
+    )
+    .filter(
+      (
+        gateway,
+      ): gateway is OpenAiGatewayConfig =>
+        gateway !== null,
+    )
+    .sort(
+      (a, b) =>
+        a.displayName.localeCompare(
+          b.displayName,
+        ),
+    );
 }
 
 export async function saveOpenAiGatewayConfig(
-  customProvidersStore: CustomProvidersStoreLike,
+  customProvidersStore:
+    CustomProvidersStoreLike,
   input: SaveOpenAiGatewayInput,
 ): Promise<OpenAiGatewayConfig> {
-  const endpointUrl = normalizeGatewayEndpointUrl(input.endpointUrl);
-  const modelId = normalizeGatewayModelId(input.modelId ?? "");
-  const contextWindow = normalizeGatewayContextWindow(input.contextWindow);
-  const existingGateways = await listOpenAiGatewayConfigs(customProvidersStore);
+  const endpointUrl =
+    normalizeGatewayEndpointUrl(
+      input.endpointUrl,
+    );
+
+  const modelIdsInput =
+    parseGatewayModelIds(
+      input.modelId,
+    );
+
+  const contextWindow =
+    normalizeGatewayContextWindow(
+      input.contextWindow,
+    );
+
+  const existingGateways =
+    await listOpenAiGatewayConfigs(
+      customProvidersStore,
+    );
 
   if (input.id) {
-    const match = existingGateways.find((gateway) => gateway.id === input.id);
+    const match =
+      existingGateways.find(
+        (gateway) =>
+          gateway.id === input.id,
+      );
+
     if (!match) {
-      throw new Error("Gateway not found.");
+      throw new Error(
+        "Gateway not found.",
+      );
     }
   }
 
-  const displayName = deriveDisplayName(input.displayName, endpointUrl);
+  const displayName =
+    deriveDisplayName(
+      input.displayName,
+      endpointUrl,
+    );
+
   const uniqueProviderNameArgs: {
     displayName: string;
     existingGateways: OpenAiGatewayConfig[];
@@ -293,40 +491,110 @@ export async function saveOpenAiGatewayConfig(
     displayName,
     existingGateways,
   };
+
   if (input.id !== undefined) {
-    uniqueProviderNameArgs.editingId = input.id;
+    uniqueProviderNameArgs.editingId =
+      input.id;
   }
-  const providerName = resolveUniqueProviderName(uniqueProviderNameArgs);
 
-  const id = input.id ?? `${OPENAI_GATEWAY_ID_PREFIX}${crypto.randomUUID()}`;
-  const apiKey = normalizeOptionalString(input.apiKey);
+  const providerName =
+    resolveUniqueProviderName(
+      uniqueProviderNameArgs,
+    );
 
-  const hardcoded = HARDCODED_GATEWAY_MODELS[endpointUrl];
-  const modelIds = modelId.length > 0
-    ? [modelId]
-    : (hardcoded ?? []);
-  const disableDiscovery = modelId.length > 0 ? undefined : true;
+  /**
+   * Explicit model IDs:
+   *
+   * User entered one or more model IDs.
+   *
+   * Discovery is disabled because the user
+   * explicitly selected the models.
+   */
+  let modelIds = modelIdsInput;
+  let disableDiscovery = true;
+
+  if (modelIds.length === 0) {
+    /**
+     * No model was entered.
+     *
+     * Check whether this endpoint is a known
+     * gateway.
+     */
+    const knownModels =
+      HARDCODED_GATEWAY_MODELS[
+        endpointUrl
+      ];
+
+    if (
+      Array.isArray(knownModels) &&
+      knownModels.length > 0
+    ) {
+      modelIds = [
+        ...knownModels,
+      ];
+
+      /**
+       * B.AI uses its known fixed model list.
+       *
+       * OpenRouter has a seed model and keeps
+       * discovery enabled.
+       */
+      disableDiscovery =
+        endpointUrl !==
+        "https://openrouter.ai/api/v1";
+    } else {
+      /**
+       * Unknown gateway with no model:
+       *
+       * No models means we cannot create a
+       * runtime provider, so discovery is
+       * disabled until a model is supplied.
+       */
+      modelIds = [];
+      disableDiscovery = true;
+    }
+  }
+
+  if (modelIds.length === 0) {
+    throw new Error(
+      "At least one model ID is required.",
+    );
+  }
+
+  const id =
+    input.id ??
+    `${OPENAI_GATEWAY_ID_PREFIX}${crypto.randomUUID()}`;
+
+  const apiKey =
+    input.apiKey !== undefined
+      ? normalizeOptionalString(
+          input.apiKey,
+        )
+      : "";
+
+  const models = modelIds.map(
+    (modelId) =>
+      createGatewayModel({
+        endpointUrl,
+        modelId,
+        providerName,
+        contextWindow,
+      }),
+  );
 
   const provider: CustomProvider = {
     id,
     name: displayName,
     type: OPENAI_GATEWAY_TYPE,
     baseUrl: endpointUrl,
-    models: modelIds.map((mId) =>
-      createGatewayModel({
-        endpointUrl,
-        modelId: mId,
-        providerName,
-        contextWindow,
-      })
-    ),
-    ...(disableDiscovery ? { disableDiscovery: true } : {}),
+    apiKey,
+    models,
+    disableDiscovery,
   };
-  if (apiKey.length > 0) {
-    provider.apiKey = apiKey;
-  }
 
-  await customProvidersStore.set(provider);
+  await customProvidersStore.set(
+    provider,
+  );
 
   return {
     id,
@@ -340,34 +608,143 @@ export async function saveOpenAiGatewayConfig(
   };
 }
 
-function matchesPersistedCustomModel(
-  storedModel: StoredModel,
-  persistedModel: Pick<Model<Api>, "api" | "id" | "provider" | "baseUrl">,
-): storedModel is Model<Api> {
-  return storedModel.api === persistedModel.api && storedModel.id === persistedModel.id;
+export async function deleteOpenAiGatewayConfig(
+  customProvidersStore:
+    CustomProvidersStoreLike,
+  id: string,
+): Promise<void> {
+  const provider =
+    await customProvidersStore.get(
+      id,
+    );
+
+  if (!provider) {
+    return;
+  }
+
+  if (
+    !isOpenAiGatewayProvider(
+      provider,
+    )
+  ) {
+    return;
+  }
+
+  await customProvidersStore.delete(
+    id,
+  );
 }
 
 export function resolveCustomProviderModel(
-  customProviders: CustomProvider[],
-  persistedModel: Pick<Model<Api>, "api" | "id" | "provider" | "baseUrl">,
+  providers: CustomProvider[],
+  model: Model<Api>,
 ): Model<Api> | null {
-  const fallbackMatches: Model<Api>[] = [];
+  const exactMatches: Model<Api>[] = [];
 
-  for (const provider of customProviders) {
-    const storedModels = Array.isArray(provider.models) ? provider.models : [];
+  for (const provider of providers) {
+    if (
+      !isOpenAiGatewayProvider(
+        provider,
+      )
+    ) {
+      continue;
+    }
+
+    const storedModels =
+      Array.isArray(provider.models)
+        ? provider.models
+        : [];
 
     for (const storedModel of storedModels) {
-      if (!matchesPersistedCustomModel(storedModel, persistedModel)) {
+      if (
+        storedModel.api !==
+        model.api
+      ) {
         continue;
       }
 
-      if (storedModel.provider === persistedModel.provider) {
-        return storedModel;
+      if (
+        storedModel.id !==
+        model.id
+      ) {
+        continue;
       }
 
-      if (storedModel.baseUrl === persistedModel.baseUrl) {
-        fallbackMatches.push(storedModel);
+      if (
+        storedModel.baseUrl !==
+        model.baseUrl
+      ) {
+        continue;
       }
+
+      exactMatches.push(
+        storedModel as Model<Api>,
+      );
+    }
+  }
+
+  if (exactMatches.length === 1) {
+    return exactMatches[0] ?? null;
+  }
+
+  if (exactMatches.length > 1) {
+    return null;
+  }
+
+  /**
+   * Fallback:
+   *
+   * Match by base URL + model ID.
+   *
+   * Only return a model if exactly one
+   * gateway matches.
+   */
+  const fallbackMatches: Model<Api>[] = [];
+
+  for (const provider of providers) {
+    if (
+      !isOpenAiGatewayProvider(
+        provider,
+      )
+    ) {
+      continue;
+    }
+
+    const endpointUrl =
+      normalizeOptionalString(
+        provider.baseUrl,
+      );
+
+    if (
+      endpointUrl.length === 0 ||
+      endpointUrl !== model.baseUrl
+    ) {
+      continue;
+    }
+
+    const storedModels =
+      Array.isArray(provider.models)
+        ? provider.models
+        : [];
+
+    for (const storedModel of storedModels) {
+      if (
+        storedModel.api !==
+        model.api
+      ) {
+        continue;
+      }
+
+      if (
+        storedModel.id !==
+        model.id
+      ) {
+        continue;
+      }
+
+      fallbackMatches.push(
+        storedModel as Model<Api>,
+      );
     }
   }
 
@@ -378,66 +755,81 @@ export function resolveCustomProviderModel(
   return fallbackMatches[0] ?? null;
 }
 
-export async function deleteOpenAiGatewayConfig(
-  customProvidersStore: CustomProvidersStoreLike,
-  id: string,
-): Promise<void> {
-  const normalizedId = normalizeOptionalString(id);
-  if (!normalizedId.startsWith(OPENAI_GATEWAY_ID_PREFIX)) {
-    return;
-  }
-
-  const existing = await customProvidersStore.get(normalizedId);
-  if (!existing || !isOpenAiGatewayProvider(existing)) {
-    return;
-  }
-
-  await customProvidersStore.delete(normalizedId);
-}
-
 export function collectCustomProviderRuntimeInfo(
-  customProviders: CustomProvider[],
+  providers: CustomProvider[],
 ): CustomProviderRuntimeInfo {
-  const providerNames = new Set<string>();
-  const apiKeys = new Map<string, string | undefined>();
-  let defaultModel: Model<Api> | null = null;
+  const providerNames =
+    new Set<string>();
 
-  for (const provider of customProviders) {
-    const apiKey = normalizeOptionalString(provider.apiKey);
-    const namesForProvider = new Set<string>();
+  const apiKeys =
+    new Map<
+      string,
+      string | undefined
+    >();
 
-    const storedModels = Array.isArray(provider.models) ? provider.models : [];
+  let defaultModel:
+    Model<Api> | null = null;
 
-    if (storedModels.length > 0) {
-      for (const model of storedModels) {
-        const modelProviderName = normalizeOptionalString(model.provider);
-        if (modelProviderName.length > 0) {
-          namesForProvider.add(modelProviderName);
-        }
+  for (const provider of providers) {
+    if (
+      isOpenAiGatewayProvider(
+        provider,
+      )
+    ) {
+      const config =
+        providerToGatewayConfig(
+          provider,
+        );
 
-        if (defaultModel === null) {
-          defaultModel = model;
-        }
-      }
-    } else {
-      const directName = normalizeOptionalString(provider.name);
-      if (directName.length > 0) {
-        namesForProvider.add(directName);
-      }
-    }
-
-    for (const providerName of namesForProvider) {
-      providerNames.add(providerName);
-
-      const hasExisting = apiKeys.has(providerName);
-      if (apiKey.length > 0) {
-        apiKeys.set(providerName, apiKey);
+      if (!config) {
         continue;
       }
 
-      if (!hasExisting) {
-        apiKeys.set(providerName, undefined);
+      providerNames.add(
+        config.providerName,
+      );
+
+      apiKeys.set(
+        config.providerName,
+        config.apiKey ||
+          undefined,
+      );
+
+      if (!defaultModel) {
+        defaultModel =
+          createGatewayModel({
+            endpointUrl:
+              config.endpointUrl,
+            modelId:
+              config.modelIds[0]!,
+            providerName:
+              config.providerName,
+            contextWindow:
+              config.contextWindow,
+          });
       }
+
+      continue;
+    }
+
+    /**
+     * Keep non-gateway custom providers
+     * visible to runtime.
+     */
+    const name =
+      normalizeOptionalString(
+        provider.name,
+      );
+
+    if (name.length > 0) {
+      providerNames.add(name);
+
+      apiKeys.set(
+        name,
+        normalizeOptionalString(
+          provider.apiKey,
+        ) || undefined,
+      );
     }
   }
 
