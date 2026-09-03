@@ -1,237 +1,258 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
-
-import type { CustomProvider } from "../src/storage/local/custom-providers-store.js";
+import test from "node:test";
 
 import {
-  DEFAULT_OPENAI_GATEWAY_CONTEXT_WINDOW,
-  collectCustomProviderRuntimeInfo,
-  deleteOpenAiGatewayConfig,
-  listOpenAiGatewayConfigs,
-  resolveCustomProviderModel,
-  saveOpenAiGatewayConfig,
-  type CustomProvidersStoreLike,
+  HARDCODED_GATEWAY_MODELS,
+  normalizeGatewayEndpointUrl,
+  parseGatewayModelIds,
+  saveCustomGateway,
 } from "../src/auth/custom-gateways.ts";
 
-class MemoryCustomProvidersStore implements CustomProvidersStoreLike {
-  private readonly providers = new Map<string, CustomProvider>();
-
-  get(id: string): Promise<CustomProvider | null> {
-    return Promise.resolve(this.providers.get(id) ?? null);
-  }
-
-  set(provider: CustomProvider): Promise<void> {
-    this.providers.set(provider.id, provider);
-    return Promise.resolve();
-  }
-
-  delete(id: string): Promise<void> {
-    this.providers.delete(id);
-    return Promise.resolve();
-  }
-
-  getAll(): Promise<CustomProvider[]> {
-    return Promise.resolve(Array.from(this.providers.values()));
-  }
-}
-
-void test("saveOpenAiGatewayConfig stores normalized endpoint/model/provider", async () => {
-  const store = new MemoryCustomProvidersStore();
-
-  const saved = await saveOpenAiGatewayConfig(store, {
-    endpointUrl: "https://gateway.example.com/v1/",
-    modelId: "gpt-4o-mini",
-    apiKey: " sk-test ",
-  });
-
-  assert.equal(saved.displayName, "gateway.example.com");
-  assert.equal(saved.endpointUrl, "https://gateway.example.com/v1");
-  assert.equal(saved.modelId, "gpt-4o-mini");
-  assert.equal(saved.apiKey, "sk-test");
-  assert.match(saved.providerName, /^Gateway · gateway\.example\.com/);
-  assert.equal(saved.contextWindow, DEFAULT_OPENAI_GATEWAY_CONTEXT_WINDOW);
-
-  const listed = await listOpenAiGatewayConfigs(store);
-  assert.equal(listed.length, 1);
-  assert.equal(listed[0]?.providerName, saved.providerName);
-  assert.equal(listed[0]?.contextWindow, DEFAULT_OPENAI_GATEWAY_CONTEXT_WINDOW);
-});
-
-void test("saveOpenAiGatewayConfig stores custom context window metadata", async () => {
-  const store = new MemoryCustomProvidersStore();
-
-  const saved = await saveOpenAiGatewayConfig(store, {
-    displayName: "Big context",
-    endpointUrl: "https://gateway.example.com/v1",
-    modelId: "big-model",
-    contextWindow: 131_072,
-  });
-
-  assert.equal(saved.contextWindow, 131_072);
-
-  const listed = await listOpenAiGatewayConfigs(store);
-  assert.equal(listed[0]?.contextWindow, 131_072);
-});
-
-void test("saveOpenAiGatewayConfig clamps maxTokens to the configured context window", async () => {
-  const store = new MemoryCustomProvidersStore();
-
-  const saved = await saveOpenAiGatewayConfig(store, {
-    displayName: "Tight budget",
-    endpointUrl: "https://gateway.example.com/v1",
-    modelId: "small-model",
-    contextWindow: 2_048,
-  });
-
-  const storedModel = (await store.get(saved.id))?.models?.[0];
-  assert.equal(storedModel?.contextWindow, 2_048);
-  assert.equal(storedModel?.maxTokens, 2_048);
-});
-
-void test("saveOpenAiGatewayConfig rejects invalid context window values", async () => {
-  const store = new MemoryCustomProvidersStore();
-
-  await assert.rejects(
-    saveOpenAiGatewayConfig(store, {
-      endpointUrl: "https://gateway.example.com/v1",
-      modelId: "too-small",
-      contextWindow: 512,
-    }),
-    /at least 1024/i,
+test("normalizeGatewayEndpointUrl removes trailing slash", () => {
+  assert.equal(
+    normalizeGatewayEndpointUrl("https://api.b.ai/v1/"),
+    "https://api.b.ai/v1",
   );
 });
 
-void test("gateway provider names stay unique when display names collide", async () => {
-  const store = new MemoryCustomProvidersStore();
+test("normalizeGatewayEndpointUrl removes hash", () => {
+  assert.equal(
+    normalizeGatewayEndpointUrl("https://api.b.ai/v1/#test"),
+    "https://api.b.ai/v1",
+  );
+});
 
-  const first = await saveOpenAiGatewayConfig(store, {
-    displayName: "ACME",
-    endpointUrl: "https://acme.example.com/v1",
+test("normalizeGatewayEndpointUrl rejects invalid URL", () => {
+  assert.throws(() => normalizeGatewayEndpointUrl("not-a-url"));
+});
+
+test("normalizeGatewayEndpointUrl rejects unsupported protocols", () => {
+  assert.throws(() => normalizeGatewayEndpointUrl("ftp://example.com/api"));
+});
+
+test("parseGatewayModelIds parses comma separated models", () => {
+  assert.deepEqual(
+    parseGatewayModelIds("model-a, model-b,model-c"),
+    ["model-a", "model-b", "model-c"],
+  );
+});
+
+test("parseGatewayModelIds parses newline separated models", () => {
+  assert.deepEqual(
+    parseGatewayModelIds("model-a\nmodel-b\nmodel-c"),
+    ["model-a", "model-b", "model-c"],
+  );
+});
+
+test("parseGatewayModelIds removes duplicates and empty values", () => {
+  assert.deepEqual(
+    parseGatewayModelIds("model-a, model-b\nmodel-a,, model-c\n"),
+    ["model-a", "model-b", "model-c"],
+  );
+});
+
+test("B.AI hardcoded gateway has the expected models", () => {
+  assert.deepEqual(
+    HARDCODED_GATEWAY_MODELS["https://api.b.ai/v1"],
+    [
+      "qwen3.8-flash",
+      "deepseek-v4-flash",
+      "mimo-v2.5",
+      "deepseek-v4-flash-vision-exp",
+    ],
+  );
+});
+
+test("OpenRouter hardcoded gateway has a seed model", () => {
+  assert.deepEqual(
+    HARDCODED_GATEWAY_MODELS["https://openrouter.ai/api/v1"],
+    ["openrouter/auto"],
+  );
+});
+
+test("saveCustomGateway saves explicit multiple models", () => {
+  const saved = saveCustomGateway({
+    id: "test-gateway",
+    displayName: "Test Gateway",
+    endpointUrl: "https://example.com/v1/",
+    modelId: "model-a,model-b\nmodel-c",
+    apiKey: "test-key",
+    providerName: "test",
+    contextWindow: 128000,
+  });
+
+  assert.equal(saved.id, "test-gateway");
+  assert.equal(saved.displayName, "Test Gateway");
+  assert.equal(saved.endpointUrl, "https://example.com/v1");
+  assert.deepEqual(saved.modelIds, ["model-a", "model-b", "model-c"]);
+  assert.equal(saved.apiKey, "test-key");
+  assert.equal(saved.providerName, "test");
+  assert.equal(saved.contextWindow, 128000);
+  assert.equal(saved.disableDiscovery, true);
+});
+
+test("saveCustomGateway uses B.AI hardcoded models when model is blank", () => {
+  const saved = saveCustomGateway({
+    id: "bai",
+    displayName: "B.AI",
+    endpointUrl: "https://api.b.ai/v1",
+    modelId: "",
+    apiKey: "bai-key",
+    providerName: "bai",
+    contextWindow: 128000,
+  });
+
+  assert.deepEqual(saved.modelIds, [
+    "qwen3.8-flash",
+    "deepseek-v4-flash",
+    "mimo-v2.5",
+    "deepseek-v4-flash-vision-exp",
+  ]);
+  assert.equal(saved.disableDiscovery, true);
+});
+
+test("saveCustomGateway uses OpenRouter seed model and enables discovery when model is blank", () => {
+  const saved = saveCustomGateway({
+    id: "openrouter",
+    displayName: "OpenRouter",
+    endpointUrl: "https://openrouter.ai/api/v1",
+    modelId: "",
+    apiKey: "openrouter-key",
+    providerName: "openrouter",
+    contextWindow: 128000,
+  });
+
+  assert.deepEqual(saved.modelIds, ["openrouter/auto"]);
+  assert.equal(saved.disableDiscovery, false);
+});
+
+test("saveCustomGateway enables discovery for an unknown gateway only when requested by model discovery", () => {
+  const saved = saveCustomGateway({
+    id: "unknown",
+    displayName: "Unknown Gateway",
+    endpointUrl: "https://example.com/v1",
     modelId: "model-a",
+    apiKey: "test-key",
+    providerName: "unknown",
+    contextWindow: 128000,
   });
 
-  const second = await saveOpenAiGatewayConfig(store, {
-    displayName: "ACME",
-    endpointUrl: "https://acme-2.example.com/v1",
-    modelId: "model-b",
-  });
-
-  assert.notEqual(first.providerName, second.providerName);
-  assert.match(second.providerName, /\(2\)$/);
+  assert.deepEqual(saved.modelIds, ["model-a"]);
+  assert.equal(saved.disableDiscovery, true);
 });
 
-void test("resolveCustomProviderModel refreshes renamed gateway models by base URL and model id", async () => {
-  const store = new MemoryCustomProvidersStore();
-
-  const firstSave = await saveOpenAiGatewayConfig(store, {
-    displayName: "Warehouse API",
-    endpointUrl: "https://warehouse.example.com/v1",
-    modelId: "supply-chain",
-    contextWindow: 16_384,
+test("saveCustomGateway normalizes endpoint URL", () => {
+  const saved = saveCustomGateway({
+    id: "normalized",
+    displayName: "Normalized",
+    endpointUrl: "https://example.com/v1///",
+    modelId: "model-a",
+    apiKey: "test-key",
+    providerName: "normalized",
+    contextWindow: 128000,
   });
 
-  const persistedModel = (await store.get(firstSave.id))?.models?.[0];
-  assert.ok(persistedModel);
-  if (!persistedModel) {
-    throw new Error("Persisted model missing");
-  }
-
-  await saveOpenAiGatewayConfig(store, {
-    id: firstSave.id,
-    displayName: "Warehouse API EU",
-    endpointUrl: "https://warehouse.example.com/v1",
-    modelId: "supply-chain",
-    contextWindow: 262_144,
-  });
-
-  const refreshed = resolveCustomProviderModel(await store.getAll(), persistedModel);
-  assert.ok(refreshed);
-  assert.equal(refreshed?.contextWindow, 262_144);
-  assert.match(refreshed?.provider ?? "", /^Gateway · Warehouse API EU/);
+  assert.equal(saved.endpointUrl, "https://example.com/v1");
 });
 
-void test("resolveCustomProviderModel refuses ambiguous base-url fallback matches", async () => {
-  const store = new MemoryCustomProvidersStore();
-
-  await saveOpenAiGatewayConfig(store, {
-    displayName: "Warehouse API US",
-    endpointUrl: "https://warehouse.example.com/v1",
-    modelId: "supply-chain",
-  });
-  await saveOpenAiGatewayConfig(store, {
-    displayName: "Warehouse API EU",
-    endpointUrl: "https://warehouse.example.com/v1",
-    modelId: "supply-chain",
+test("saveCustomGateway trims display name and provider name", () => {
+  const saved = saveCustomGateway({
+    id: "trimmed",
+    displayName: "  My Gateway  ",
+    endpointUrl: "https://example.com/v1",
+    modelId: "model-a",
+    apiKey: "test-key",
+    providerName: "  my-provider  ",
+    contextWindow: 128000,
   });
 
-  const resolved = resolveCustomProviderModel(await store.getAll(), {
-    api: "openai-completions",
-    id: "supply-chain",
-    provider: "Gateway · Warehouse API",
-    baseUrl: "https://warehouse.example.com/v1",
-  });
-
-  assert.equal(resolved, null);
+  assert.equal(saved.displayName, "My Gateway");
+  assert.equal(saved.providerName, "my-provider");
 });
 
-void test("deleteOpenAiGatewayConfig only removes managed gateway entries", async () => {
-  const store = new MemoryCustomProvidersStore();
-
-  const saved = await saveOpenAiGatewayConfig(store, {
-    displayName: "Delete me",
-    endpointUrl: "https://delete.example.com/v1",
-    modelId: "model-delete",
+test("saveCustomGateway trims API key", () => {
+  const saved = saveCustomGateway({
+    id: "key-trim",
+    displayName: "Key Trim",
+    endpointUrl: "https://example.com/v1",
+    modelId: "model-a",
+    apiKey: "  secret-key  ",
+    providerName: "test",
+    contextWindow: 128000,
   });
 
-  await store.set({
-    id: "manual-openai-provider",
-    name: "Manual provider",
-    type: "openai-completions",
-    baseUrl: "https://manual.example.com/v1",
-    models: [{
-      id: "manual-model",
-      name: "manual-model",
-      api: "openai-completions",
-      provider: "manual-provider",
-      baseUrl: "https://manual.example.com/v1",
-      reasoning: false,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 8192,
-      maxTokens: 1024,
-    }],
-  });
-
-  await deleteOpenAiGatewayConfig(store, saved.id);
-  await deleteOpenAiGatewayConfig(store, "manual-openai-provider");
-
-  const all = await store.getAll();
-  assert.equal(all.length, 1);
-  assert.equal(all[0]?.id, "manual-openai-provider");
+  assert.equal(saved.apiKey, "secret-key");
 });
 
-void test("collectCustomProviderRuntimeInfo includes custom provider names and api keys", async () => {
-  const store = new MemoryCustomProvidersStore();
+test("saveCustomGateway rejects missing API key", () => {
+  assert.throws(() =>
+    saveCustomGateway({
+      id: "missing-key",
+      displayName: "Missing Key",
+      endpointUrl: "https://example.com/v1",
+      modelId: "model-a",
+      apiKey: "",
+      providerName: "test",
+      contextWindow: 128000,
+    }),
+  );
+});
 
-  const gateway = await saveOpenAiGatewayConfig(store, {
-    displayName: "Runtime Gateway",
-    endpointUrl: "https://runtime.example.com/v1",
-    modelId: "runtime-model",
-    apiKey: "runtime-key",
+test("saveCustomGateway rejects missing endpoint", () => {
+  assert.throws(() =>
+    saveCustomGateway({
+      id: "missing-endpoint",
+      displayName: "Missing Endpoint",
+      endpointUrl: "",
+      modelId: "model-a",
+      apiKey: "test-key",
+      providerName: "test",
+      contextWindow: 128000,
+    }),
+  );
+});
+
+test("saveCustomGateway rejects missing model for unknown gateway", () => {
+  assert.throws(() =>
+    saveCustomGateway({
+      id: "unknown-no-model",
+      displayName: "Unknown",
+      endpointUrl: "https://example.com/v1",
+      modelId: "",
+      apiKey: "test-key",
+      providerName: "unknown",
+      contextWindow: 128000,
+    }),
+  );
+});
+
+test("saveCustomGateway accepts blank model for B.AI", () => {
+  const saved = saveCustomGateway({
+    id: "bai-blank",
+    displayName: "B.AI",
+    endpointUrl: "https://api.b.ai/v1/",
+    modelId: "",
+    apiKey: "test-key",
+    providerName: "bai",
+    contextWindow: 128000,
   });
 
-  await store.set({
-    id: "custom-ollama-1",
-    name: "Local Ollama",
-    type: "ollama",
-    baseUrl: "http://localhost:11434",
+  assert.equal(saved.endpointUrl, "https://api.b.ai/v1");
+  assert.equal(saved.modelIds.length, 4);
+});
+
+test("saveCustomGateway accepts blank model for OpenRouter", () => {
+  const saved = saveCustomGateway({
+    id: "or-blank",
+    displayName: "OpenRouter",
+    endpointUrl: "https://openrouter.ai/api/v1/",
+    modelId: "",
+    apiKey: "test-key",
+    providerName: "openrouter",
+    contextWindow: 128000,
   });
 
-  const runtimeInfo = collectCustomProviderRuntimeInfo(await store.getAll());
-
-  assert.ok(runtimeInfo.providerNames.has(gateway.providerName));
-  assert.ok(runtimeInfo.providerNames.has("Local Ollama"));
-  assert.equal(runtimeInfo.apiKeys.get(gateway.providerName), "runtime-key");
-  assert.equal(runtimeInfo.apiKeys.get("Local Ollama"), undefined);
-  assert.equal(runtimeInfo.defaultModel?.id, "runtime-model");
+  assert.equal(saved.endpointUrl, "https://openrouter.ai/api/v1");
+  assert.deepEqual(saved.modelIds, ["openrouter/auto"]);
+  assert.equal(saved.disableDiscovery, false);
 });
