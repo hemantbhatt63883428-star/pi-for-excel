@@ -502,7 +502,7 @@ function customProviderRegistrations(provider: CustomProvider): BrowserProviderR
     models,
     resolveApiKey: () => Promise.resolve(provider.apiKey),
     allowKeyless: !provider.apiKey,
-    disableDiscovery: provider.disableDiscovery,
+    ...(provider.disableDiscovery ? { disableDiscovery: true } : {}),
   }));
 }
 
