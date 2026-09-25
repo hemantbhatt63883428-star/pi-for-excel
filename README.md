@@ -62,6 +62,8 @@ Pi for Excel is an AI agent that lives inside Excel. It reads your workbook, mak
 
 ## Install
 
+**For this fork's Cloudflare Pages deployment:** the Vercel manifest linked below belongs to a different deployment. Follow [the fork deployment guide](docs/deploy-hemant.md) and use the manifest generated at your own Pages origin. If Excel blocks manifest upload, hosting alone does not install the add-in; see [Marketplace requirements](docs/marketplace-hemant.md).
+
 1. Download [`manifest.prod.xml`](https://pi-for-excel.vercel.app/manifest.prod.xml)
 2. Add it to Excel — see [**install guide**](docs/install.md) for step-by-step instructions (macOS + Windows)
 3. Click **Open Pi** in the ribbon
@@ -249,6 +251,8 @@ public/assets/         # Add-in icons (16/32/80/128px)
 - **Extension sandbox** — untrusted extensions (inline code, remote URLs) run in an iframe sandbox by default; built-in/local modules run on the host.
 
 ## Deployment
+
+For this fork's Cloudflare Pages build with Mercury 2.5, see [docs/deploy-hemant.md](docs/deploy-hemant.md). The Vercel instructions below describe the older deployment.
 
 The production build is a static site deployed to [Vercel](https://vercel.com). See [docs/deploy-vercel.md](docs/deploy-vercel.md) for maintainer setup.
 

@@ -1,3 +1,5 @@
+import { t } from "../language/index.js";
+
 /**
  * Shared toast helper used across taskpane and commands.
  */
@@ -94,8 +96,8 @@ function ensureToastElements(): ToastElements {
   action.type = "button";
   action.className = "pi-toast__action";
   action.hidden = true;
-  action.setAttribute("aria-label", "Cancel");
-  action.title = "Cancel";
+  action.setAttribute("aria-label", t("confirm.cancel"));
+  action.title = t("confirm.cancel");
 
   content.append(icon, message, action);
   root.appendChild(content);
