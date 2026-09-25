@@ -65,7 +65,7 @@ function loadFavoriteModelKeys(): Set<string> {
   try {
     const raw = localStorage.getItem(FAVORITE_MODELS_STORAGE_KEY);
     if (!raw) return new Set();
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: DynamicValue = JSON.parse(raw);
     if (!Array.isArray(parsed)) return new Set();
     return new Set(parsed.filter((value): value is string =>
       typeof value === "string" && value.trim().length > 0));
@@ -228,8 +228,9 @@ export function openModelSelectorDialog(options: ModelSelectorDialogOptions): vo
           selectedIndex = rememberedIndex;
         }
       } else if (options.currentModel) {
+        const currentModel = options.currentModel;
         const currentIndex = filtered.findIndex((item) =>
-          modelsAreEqual(options.currentModel!, item.model),
+          modelsAreEqual(currentModel, item.model),
         );
         if (currentIndex >= 0) {
           selectedIndex = currentIndex;
