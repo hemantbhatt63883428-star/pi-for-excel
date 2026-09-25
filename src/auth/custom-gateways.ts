@@ -191,7 +191,7 @@ function providerToGatewayConfig(provider: CustomProvider): OpenAiGatewayConfig 
     apiKey: normalizeOptionalString(provider.apiKey),
     providerName,
     contextWindow: normalizeGatewayContextWindow(model.contextWindow),
-    disableDiscovery: provider.disableDiscovery,
+    ...(provider.disableDiscovery ? { disableDiscovery: true } : {}),
   };
 }
 
@@ -348,6 +348,10 @@ export async function saveOpenAiGatewayConfig(
       ? modelIdsInput
       : (hardcoded ?? []);
 
+  if (modelIds.length === 0) {
+    throw new Error("Enter at least one model ID for this gateway.");
+  }
+
   // User-specified models are treated as explicit/manual configuration.
   // Built-in gateways (B.AI/OpenRouter) retain model discovery when their
   // model field is left blank.
@@ -392,7 +396,7 @@ export async function saveOpenAiGatewayConfig(
     apiKey,
     providerName,
     contextWindow,
-    disableDiscovery,
+    ...(disableDiscovery ? { disableDiscovery: true } : {}),
   };
 }
 
