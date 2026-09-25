@@ -21,6 +21,8 @@ node_modules/
 
 # Build output
 dist/
+public/_headers
+public/_redirects
 
 # Certs (generated locally)
 *.pem
